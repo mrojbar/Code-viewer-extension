@@ -1,0 +1,86 @@
+{
+  "name": "testextension",
+  "displayName": "TestExtension",
+  "description": "",
+  "version": "0.0.1",
+  "files": [
+    "out/**",
+    "runtime/**",
+    "media/**",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "vscode": "^1.110.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "testextension-sidebar",
+          "title": "Test Extension",
+          "icon": "src/media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "testextension-sidebar": [
+        {
+          "type": "webview",
+          "id": "testextension-sidebar-view",
+          "name": "Test Extension View",
+          "icon": "src/media/icon.svg"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "testextension.helloWorld",
+        "title": "Hello World"
+      },
+      {
+        "command": "testextension.startPythonRuntime",
+        "title": "Start Python Runtime"
+      },
+      {
+        "command": "testextension.stopPythonRuntime",
+        "title": "Stop Python Runtime"
+      },
+      {
+        "command": "testextension.pythonRuntimeStatus",
+        "title": "Python Runtime Status"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "pnpm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "pnpm run compile && pnpm run lint",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "22.x",
+    "@types/vscode": "^1.110.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "eslint": "^9.39.3",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.56.1"
+  },
+  "dependencies": {
+    "cytoscape": "^3.33.2",
+    "cytoscape-elk": "^2.3.0",
+    "elkjs": "^0.11.1",
+    "pnpm": "^10.33.0"
+  }
+}
