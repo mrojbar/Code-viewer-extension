@@ -6,6 +6,8 @@
   "files": [
     "out/**",
     "runtime/**",
+    "src/visualization/graphTemplate.html",
+    "src/visualization/assets/**",
     "media/**",
     "README.md",
     "CHANGELOG.md"
@@ -61,8 +63,11 @@
   },
   "scripts": {
     "vscode:prepublish": "pnpm run compile",
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
+    "compile": "pnpm run compile:extension && pnpm run compile:webview",
+    "compile:extension": "tsc -p ./",
+    "compile:webview": "tsc -p ./tsconfig.webview.json",
+    "watch": "pnpm run compile:webview && tsc -watch -p ./",
+    "watch:webview": "tsc -watch -p ./tsconfig.webview.json",
     "pretest": "pnpm run compile && pnpm run lint",
     "lint": "eslint src",
     "test": "vscode-test"

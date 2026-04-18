@@ -69,9 +69,27 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     const scriptUri = webview.asWebviewUri(
       vscode.Uri.joinPath(
         this._extensionUri,
+        "runtime",
+        "webview",
+        "cytoscapeView.js",
+      ),
+    );
+    const nodePlusUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(
+        this._extensionUri,
         "src",
         "visualization",
-        "cytoscapeView.js",
+        "assets",
+        "node-plus.svg",
+      ),
+    );
+    const nodeMinusUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(
+        this._extensionUri,
+        "src",
+        "visualization",
+        "assets",
+        "node-minus.svg",
       ),
     );
     const envPath = vscode.Uri.joinPath(this._extensionUri, ".env").fsPath;
@@ -99,6 +117,14 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     htmlContent = htmlContent.replace(
       "__CYTOSCAPE_DEBUG__",
       String(cytoscapeDebug),
+    );
+    htmlContent = htmlContent.replace(
+      "__NODE_PLUS_URI__",
+      nodePlusUri.toString(),
+    );
+    htmlContent = htmlContent.replace(
+      "__NODE_MINUS_URI__",
+      nodeMinusUri.toString(),
     );
 
     return htmlContent;

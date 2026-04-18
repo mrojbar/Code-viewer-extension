@@ -1,7 +1,9 @@
 import * as vscode from "vscode";
+import * as path from "path";
 import { RuntimeManager } from "./RuntimeManager";
 import { SidebarProvider } from "./SidebarProvider";
 import { CallGraphVisualizer } from "./visualization/CallGraphVisualizer";
+import { CallGraphData } from "./types/call_graph";
 
 export function activate(context: vscode.ExtensionContext) {
   const runtimeManager = new RuntimeManager(context);
@@ -62,37 +64,21 @@ export function activate(context: vscode.ExtensionContext) {
   const sidebarProvider = new SidebarProvider(context.extensionUri);
 
   sidebarProvider.visualizer = cytoscapeVis;
-  sidebarProvider.graphData = {
-    type: "directory",
-    children: {
-      main: {
-        type: "directory",
-        children: {},
-      },
-      main2: {
-        type: "directory",
-        children: {
-          main3: {
-            type: "directory",
-            children: {},
-          },
-          main5: {
-            type: "directory",
-            children: {},
-          },
-          main4: {
-            type: "directory",
-            children: {
-              main5: {
-                type: "directory",
-                children: {},
-              },
-            },
-          },
-        },
-      },
-    },
-  };
+  try {
+    const structFile = path.join(
+      context.extensionUri.fsPath,
+      "structure_analyzer",
+      "main",
+      "call_graph.json",
+    );
+
+    const structObj = require(structFile);
+    sidebarProvider.graphData = structObj as CallGraphData;
+  } catch (error) {
+    vscode.window.showErrorMessage(
+      `Failed to load call graph data: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(

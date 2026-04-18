@@ -1,6 +1,10 @@
 .vscode/**
 .vscode-test/**
 src/**
+!src/visualization/
+!src/visualization/graphTemplate.html
+!src/visualization/assets/
+!src/visualization/assets/**
 .gitignore
 .yarnrc
 vsc-extension-quickstart.md
