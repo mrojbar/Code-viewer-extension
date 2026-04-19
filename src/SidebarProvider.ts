@@ -1,12 +1,12 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
-import { CallGraphVisualizer } from "./visualization/CallGraphVisualizer";
 import { CallGraphData } from "./types/call_graph";
-import { getEnvBoolean, readEnvVariables } from "./utils/env";
+import { PixiVisualizer } from "./visualization/PixiVisualizer";
 
+/** Hosts the sidebar webview and pushes graph payloads into the webview runtime. */
 export class SidebarProvider implements vscode.WebviewViewProvider {
   _view?: vscode.WebviewView;
-  public visualizer?: CallGraphVisualizer;
+  public visualizer?: PixiVisualizer;
   public graphData?: CallGraphData;
   private readonly _extensionUri: vscode.Uri;
 
@@ -14,6 +14,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     this._extensionUri = extensionUri;
   }
 
+  /** Initializes webview options and injects HTML shell content. */
   public resolveWebviewView(webviewView: vscode.WebviewView) {
     this._view = webviewView;
 
@@ -29,6 +30,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  /** Converts graph data to Pixi payload and posts it to the webview. */
   public updateWebview() {
     if (!this._view || !this.visualizer || !this.graphData) {
       return;
@@ -38,63 +40,40 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     this._view.webview.postMessage({ type: "updateGraph", elements: elements });
   }
 
+  /** Builds template HTML and injects webview-safe module URLs. */
   private getHtmlForWebview(webview: vscode.Webview): string {
-    const cytoscapeUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(
-        this._extensionUri,
-        "node_modules",
-        "cytoscape",
-        "dist",
-        "cytoscape.min.js",
-      ),
-    );
-    const elkjsUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(
-        this._extensionUri,
-        "node_modules",
-        "elkjs",
-        "lib",
-        "elk.bundled.js",
-      ),
-    );
-    const cytoscapeElkUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(
-        this._extensionUri,
-        "node_modules",
-        "cytoscape-elk",
-        "dist",
-        "cytoscape-elk.js",
-      ),
-    );
-    const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(
-        this._extensionUri,
-        "runtime",
-        "webview",
-        "cytoscapeView.js",
-      ),
-    );
-    const nodePlusUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(
-        this._extensionUri,
-        "src",
-        "visualization",
-        "assets",
-        "node-plus.svg",
-      ),
-    );
-    const nodeMinusUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(
-        this._extensionUri,
-        "src",
-        "visualization",
-        "assets",
-        "node-minus.svg",
-      ),
-    );
-    const envPath = vscode.Uri.joinPath(this._extensionUri, ".env").fsPath;
-    const envVars = readEnvVariables(envPath);
-    const cytoscapeDebug = getEnvBoolean(envVars, "CYTOSCAPE_DEBUG");
+    const pixiImportUrl = webview
+      .asWebviewUri(
+        vscode.Uri.joinPath(
+          this._extensionUri,
+          "node_modules",
+          "pixi.js",
+          "dist",
+          "pixi.min.mjs",
+        ),
+      )
+      .toString();
+    const pixiViewportImportUrl = webview
+      .asWebviewUri(
+        vscode.Uri.joinPath(
+          this._extensionUri,
+          "node_modules",
+          "pixi-viewport",
+          "dist",
+          "pixi_viewport.js",
+        ),
+      )
+      .toString();
+    const scriptUri = webview
+      .asWebviewUri(
+        vscode.Uri.joinPath(
+          this._extensionUri,
+          "runtime",
+          "webview",
+          "pixiView.js",
+        ),
+      )
+      .toString();
 
     const templatePath = vscode.Uri.joinPath(
       this._extensionUri,
@@ -104,28 +83,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     );
     let htmlContent = fs.readFileSync(templatePath.fsPath, "utf8");
 
+    htmlContent = htmlContent.replace("${pixiImportUrl}", pixiImportUrl);
     htmlContent = htmlContent.replace(
-      "${cytoscapeUri}",
-      cytoscapeUri.toString(),
+      "${pixiViewportImportUrl}",
+      pixiViewportImportUrl,
     );
-    htmlContent = htmlContent.replace("${elkjsUri}", elkjsUri.toString());
-    htmlContent = htmlContent.replace(
-      "${cytoscapeElkUri}",
-      cytoscapeElkUri.toString(),
-    );
-    htmlContent = htmlContent.replace("${scriptUri}", scriptUri.toString());
-    htmlContent = htmlContent.replace(
-      "__CYTOSCAPE_DEBUG__",
-      String(cytoscapeDebug),
-    );
-    htmlContent = htmlContent.replace(
-      "__NODE_PLUS_URI__",
-      nodePlusUri.toString(),
-    );
-    htmlContent = htmlContent.replace(
-      "__NODE_MINUS_URI__",
-      nodeMinusUri.toString(),
-    );
+    htmlContent = htmlContent.replace("${scriptUri}", scriptUri);
 
     return htmlContent;
   }

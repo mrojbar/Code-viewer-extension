@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import * as path from "path";
 import { RuntimeManager } from "./RuntimeManager";
 import { SidebarProvider } from "./SidebarProvider";
-import { CallGraphVisualizer } from "./visualization/CallGraphVisualizer";
+import { PixiVisualizer } from "./visualization/PixiVisualizer";
 import { CallGraphData } from "./types/call_graph";
 
 export function activate(context: vscode.ExtensionContext) {
@@ -60,10 +60,10 @@ export function activate(context: vscode.ExtensionContext) {
   /**
    * Test: render graph
    */
-  const cytoscapeVis = new CallGraphVisualizer();
+  const pixiVis = new PixiVisualizer();
   const sidebarProvider = new SidebarProvider(context.extensionUri);
 
-  sidebarProvider.visualizer = cytoscapeVis;
+  sidebarProvider.visualizer = pixiVis;
   try {
     const structFile = path.join(
       context.extensionUri.fsPath,

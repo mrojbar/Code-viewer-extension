@@ -1,32 +1,38 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <!-- Webview shell that hosts the Pixi canvas and runtime module entrypoint. -->
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <script src="${cytoscapeUri}"></script>
-    <script src="${elkjsUri}"></script>
-    <script src="${cytoscapeElkUri}"></script>
     <style>
+      html,
       body {
         margin: 0;
         padding: 0;
         overflow: hidden;
         background-color: var(--vscode-editor-background);
         color: var(--vscode-editor-foreground);
+        width: 100%;
+        height: 100%;
       }
-      #cy {
-        width: 100vw;
-        height: 100vh;
+
+      #pixi-canvas {
+        width: 100%;
+        height: 100%;
         display: block;
       }
     </style>
   </head>
-  <body
-    data-cytoscape-debug="__CYTOSCAPE_DEBUG__"
-    data-node-plus-uri="__NODE_PLUS_URI__"
-    data-node-minus-uri="__NODE_MINUS_URI__"
-  >
-    <div id="cy"></div>
+  <body>
+    <canvas id="pixi-canvas"></canvas>
+    <script type="importmap">
+      {
+        "imports": {
+          "pixi.js": "${pixiImportUrl}",
+          "pixi-viewport": "${pixiViewportImportUrl}"
+        }
+      }
+    </script>
     <script type="module" src="${scriptUri}"></script>
   </body>
 </html>
