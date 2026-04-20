@@ -73,6 +73,7 @@
     "test": "vscode-test"
   },
   "devDependencies": {
+    "@types/d3-hierarchy": "^3.1.7",
     "@types/mocha": "^10.0.10",
     "@types/node": "22.x",
     "@types/vscode": "^1.110.0",
@@ -83,6 +84,8 @@
     "typescript-eslint": "^8.56.1"
   },
   "dependencies": {
+    "@a-issaoui/universal-msdf-generator": "^1.10.0",
+    "d3-hierarchy": "^3.1.2",
     "elkjs": "^0.11.1",
     "pixi-viewport": "^6.0.3",
     "pixi.js": "^8.18.1",

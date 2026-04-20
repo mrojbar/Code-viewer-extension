@@ -1,4 +1,8 @@
-import { CallGraphData, DirectoryNode, FileNode } from "../types/call_graph";
+import {
+  CallGraphData,
+  DirectoryNode,
+  FileNode,
+} from "../interfaces/callGraph";
 
 export interface PixiElement {
   id: string;

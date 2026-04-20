@@ -1,95 +1,113 @@
 import * as vscode from "vscode";
-import * as fs from "fs";
-import { CallGraphData } from "./types/call_graph";
+import { CallGraphData } from "./interfaces/callGraph";
 import { PixiVisualizer } from "./visualization/PixiVisualizer";
+import { PixiWebviewController } from "./webview/PixiWebviewController";
+import { TextRenderingConfig, WebviewHost } from "./webview/contracts";
 
 /** Hosts the sidebar webview and pushes graph payloads into the webview runtime. */
 export class SidebarProvider implements vscode.WebviewViewProvider {
-  _view?: vscode.WebviewView;
-  public visualizer?: PixiVisualizer;
-  public graphData?: CallGraphData;
   private readonly _extensionUri: vscode.Uri;
+  private readonly _controller: PixiWebviewController;
+  private readonly _additionalLocalResourceRoots: readonly vscode.Uri[];
 
-  constructor(extensionUri: vscode.Uri) {
+  private constructor(
+    extensionUri: vscode.Uri,
+    controller: PixiWebviewController,
+    additionalLocalResourceRoots: readonly vscode.Uri[],
+  ) {
     this._extensionUri = extensionUri;
+    this._controller = controller;
+    this._additionalLocalResourceRoots = additionalLocalResourceRoots;
   }
 
-  /** Initializes webview options and injects HTML shell content. */
-  public resolveWebviewView(webviewView: vscode.WebviewView) {
-    this._view = webviewView;
+  /** Factory for sidebar host wiring. */
+  public static create(
+    extensionUri: vscode.Uri,
+    visualizer: PixiVisualizer,
+    additionalLocalResourceRoots: readonly vscode.Uri[] = [],
+  ): SidebarProvider {
+    const templatePath = vscode.Uri.joinPath(
+      extensionUri,
+      "src",
+      "visualization",
+      "graphTemplate.html",
+    ).fsPath;
 
-    webviewView.webview.options = {
-      enableScripts: true,
-      localResourceRoots: [this._extensionUri],
-    };
-
-    webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
-
-    if (this.visualizer) {
-      this.updateWebview();
-    }
-  }
-
-  /** Converts graph data to Pixi payload and posts it to the webview. */
-  public updateWebview() {
-    if (!this._view || !this.visualizer || !this.graphData) {
-      return;
-    }
-
-    const elements = this.visualizer.buildElementsFromData(this.graphData);
-    this._view.webview.postMessage({ type: "updateGraph", elements: elements });
-  }
-
-  /** Builds template HTML and injects webview-safe module URLs. */
-  private getHtmlForWebview(webview: vscode.Webview): string {
-    const pixiImportUrl = webview
-      .asWebviewUri(
-        vscode.Uri.joinPath(
-          this._extensionUri,
-          "node_modules",
-          "pixi.js",
-          "dist",
-          "pixi.min.mjs",
-        ),
-      )
-      .toString();
-    const pixiViewportImportUrl = webview
-      .asWebviewUri(
-        vscode.Uri.joinPath(
-          this._extensionUri,
+    const controller = PixiWebviewController.create({
+      visualizer,
+      templatePath,
+      resourcePaths: {
+        pixiModulePath: ["node_modules", "pixi.js", "dist", "pixi.min.mjs"],
+        pixiViewportModulePath: [
           "node_modules",
           "pixi-viewport",
           "dist",
           "pixi_viewport.js",
-        ),
-      )
-      .toString();
-    const scriptUri = webview
-      .asWebviewUri(
-        vscode.Uri.joinPath(
-          this._extensionUri,
-          "runtime",
-          "webview",
-          "pixiView.js",
-        ),
-      )
-      .toString();
+        ],
+        d3HierarchyModulePath: [
+          "node_modules",
+          "d3-hierarchy",
+          "src",
+          "index.js",
+        ],
+        runtimeScriptPath: ["runtime", "webview", "pixiView.js"],
+      },
+    });
 
-    const templatePath = vscode.Uri.joinPath(
-      this._extensionUri,
-      "src",
-      "visualization",
-      "graphTemplate.html",
+    return new SidebarProvider(
+      extensionUri,
+      controller,
+      additionalLocalResourceRoots,
     );
-    let htmlContent = fs.readFileSync(templatePath.fsPath, "utf8");
+  }
 
-    htmlContent = htmlContent.replace("${pixiImportUrl}", pixiImportUrl);
-    htmlContent = htmlContent.replace(
-      "${pixiViewportImportUrl}",
-      pixiViewportImportUrl,
-    );
-    htmlContent = htmlContent.replace("${scriptUri}", scriptUri);
+  /** Initializes webview options and injects HTML shell content. */
+  public resolveWebviewView(webviewView: vscode.WebviewView) {
+    webviewView.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [
+        this._extensionUri,
+        ...this._additionalLocalResourceRoots,
+      ],
+    };
 
-    return htmlContent;
+    this._controller.attachHost(this.createHostAdapter(webviewView.webview));
+  }
+
+  /** Lifecycle entrypoint for graph updates from activation/runtime flows. */
+  public setGraphData(graphData: CallGraphData): void {
+    this._controller.setGraphData(graphData);
+  }
+
+  /** Lifecycle hook for explicit refresh triggers when needed. */
+  public refresh(): void {
+    this._controller.refresh();
+  }
+
+  /** Updates text rendering options that are forwarded to the webview runtime. */
+  public setTextRenderingConfig(config: TextRenderingConfig): void {
+    this._controller.setTextRenderingConfig(config);
+  }
+
+  /** Lifecycle cleanup for controller-host association. */
+  public dispose(): void {
+    this._controller.dispose();
+  }
+
+  private createHostAdapter(webview: vscode.Webview): WebviewHost {
+    return {
+      setHtml: (html: string) => {
+        webview.html = html;
+      },
+      postMessage: (message: unknown) => webview.postMessage(message),
+      resolveResourceUri: (pathSegments: string[]) =>
+        webview
+          .asWebviewUri(
+            vscode.Uri.joinPath(this._extensionUri, ...pathSegments),
+          )
+          .toString(),
+      resolveAbsoluteUri: (filePath: string) =>
+        webview.asWebviewUri(vscode.Uri.file(filePath)).toString(),
+    };
   }
 }

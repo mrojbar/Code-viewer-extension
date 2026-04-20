@@ -3,7 +3,11 @@ import * as path from "path";
 import { RuntimeManager } from "./RuntimeManager";
 import { SidebarProvider } from "./SidebarProvider";
 import { PixiVisualizer } from "./visualization/PixiVisualizer";
-import { CallGraphData } from "./types/call_graph";
+import { CallGraphData } from "./interfaces/callGraph";
+import {
+  configureMsdfTextRendering,
+  getTerminalFontFamily,
+} from "./utils/font";
 
 export function activate(context: vscode.ExtensionContext) {
   const runtimeManager = new RuntimeManager(context);
@@ -61,9 +65,19 @@ export function activate(context: vscode.ExtensionContext) {
    * Test: render graph
    */
   const pixiVis = new PixiVisualizer();
-  const sidebarProvider = new SidebarProvider(context.extensionUri);
+  const terminalFontFamily = getTerminalFontFamily();
 
-  sidebarProvider.visualizer = pixiVis;
+  const sidebarProvider = SidebarProvider.create(
+    context.extensionUri,
+    pixiVis,
+    [context.globalStorageUri],
+  );
+  sidebarProvider.setTextRenderingConfig({
+    editorFontFamily: terminalFontFamily,
+  });
+
+  void configureMsdfTextRendering(context, sidebarProvider, terminalFontFamily);
+
   try {
     const structFile = path.join(
       context.extensionUri.fsPath,
@@ -73,7 +87,7 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     const structObj = require(structFile);
-    sidebarProvider.graphData = structObj as CallGraphData;
+    sidebarProvider.setGraphData(structObj as CallGraphData);
   } catch (error) {
     vscode.window.showErrorMessage(
       `Failed to load call graph data: ${error instanceof Error ? error.message : String(error)}`,
@@ -86,6 +100,12 @@ export function activate(context: vscode.ExtensionContext) {
       sidebarProvider,
     ),
   );
+
+  context.subscriptions.push({
+    dispose: () => {
+      sidebarProvider.dispose();
+    },
+  });
 
   context.subscriptions.push(
     disposable,
