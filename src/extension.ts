@@ -4,12 +4,9 @@ import { RuntimeManager } from "./RuntimeManager";
 import { SidebarProvider } from "./SidebarProvider";
 import { PixiVisualizer } from "./visualization/PixiVisualizer";
 import { CallGraphData } from "./interfaces/callGraph";
-import {
-  configureMsdfTextRendering,
-  getTerminalFontFamily,
-} from "./utils/font";
+import { getEditorFontFamily } from "./utils/font";
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
   const runtimeManager = new RuntimeManager(context);
   context.subscriptions.push(runtimeManager);
 
@@ -65,7 +62,7 @@ export function activate(context: vscode.ExtensionContext) {
    * Test: render graph
    */
   const pixiVis = new PixiVisualizer();
-  const terminalFontFamily = getTerminalFontFamily();
+  const editorFontFamily = getEditorFontFamily();
 
   const sidebarProvider = SidebarProvider.create(
     context.extensionUri,
@@ -73,10 +70,8 @@ export function activate(context: vscode.ExtensionContext) {
     [context.globalStorageUri],
   );
   sidebarProvider.setTextRenderingConfig({
-    editorFontFamily: terminalFontFamily,
+    editorFontFamily,
   });
-
-  void configureMsdfTextRendering(context, sidebarProvider, terminalFontFamily);
 
   try {
     const structFile = path.join(

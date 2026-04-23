@@ -29,14 +29,10 @@ export interface UpdateGraphMessage {
   type: "updateGraph";
   elements: unknown[];
   editorFontFamily: string;
-  msdfFontFntUri?: string;
-  msdfFontFamily?: string;
 }
 
 export interface TextRenderingConfig {
   editorFontFamily: string;
-  msdfFontFntAbsolutePath?: string;
-  msdfFontFamily?: string;
 }
 
 /** Lifecycle contract used by host adapters (sidebar, panel, etc.). */

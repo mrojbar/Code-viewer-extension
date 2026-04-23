@@ -17,6 +17,7 @@ export class TreemapLayout implements LayoutAlgorithm<TreemapLayoutConfig> {
     const height = Math.max(1, Math.floor(config.height));
     const paddingInner = config.paddingInner ?? 10;
     const paddingOuter = config.paddingOuter ?? 10;
+    const startTime = performance.now();
 
     const rootHierarchy = hierarchy<LayoutNode>(
       root,
@@ -35,6 +36,18 @@ export class TreemapLayout implements LayoutAlgorithm<TreemapLayoutConfig> {
 
     const laidOutRoot = treemapLayout(rootHierarchy);
     const includeRoot = config.includeRoot ?? false;
+    const endTime = performance.now();
+
+    console.log(
+      `Computing treemap layout with ${root.children.length} top-level nodes and config:`,
+      {
+        width,
+        height,
+        paddingInner,
+        paddingOuter,
+      },
+      `In ${(endTime - startTime).toFixed(2)} ms`,
+    );
 
     return laidOutRoot
       .descendants()

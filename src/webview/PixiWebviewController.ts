@@ -80,12 +80,6 @@ export class PixiWebviewController implements PixiWebviewLifecycle {
       type: "updateGraph",
       elements,
       editorFontFamily: this.textRenderingConfig.editorFontFamily,
-      msdfFontFntUri: this.textRenderingConfig.msdfFontFntAbsolutePath
-        ? this.host.resolveAbsoluteUri(
-            this.textRenderingConfig.msdfFontFntAbsolutePath,
-          )
-        : undefined,
-      msdfFontFamily: this.textRenderingConfig.msdfFontFamily,
     };
 
     void this.host.postMessage(message);

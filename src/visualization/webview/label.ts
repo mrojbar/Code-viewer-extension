@@ -1,4 +1,4 @@
-import { Assets, BitmapText, Container } from "pixi.js";
+import { Container, Text } from "pixi.js";
 import { Viewport } from "pixi-viewport";
 
 export interface DirectoryLabelInput {
@@ -15,9 +15,6 @@ export type LabelPosition =
   | "top-left"
   | "top-center"
   | "top-right"
-  | "middle-left"
-  | "middle-center"
-  | "middle-right"
   | "bottom-left"
   | "bottom-center"
   | "bottom-right";
@@ -36,58 +33,48 @@ interface Label {
 }
 
 interface RenderedLabel {
-  textNode: BitmapText;
+  textNode: Text;
   labelData: Label;
   collisionBoxes: DirectoryLabelInput[];
 }
 
-export const LABEL_PADDING_PX = 5;
-export const LABEL_COLOR = "#ffffff";
-export const LABEL_DEFAULT_POSITION: LabelPosition = "bottom-right";
-export const LABEL_FONT_SIZE_PX = 14;
-export const LABEL_ZOOM_SCALE_MIN = 0;
-export const LABEL_ZOOM_SCALE_MAX = 100;
-export const LABEL_FIT_EPSILON_PX = 25;
-export const LABEL_FIT_EPSILON_MIN_PX = 0.01;
-export const LABEL_OUTER_PADDING_FALLBACK_PX = 25;
+const LABEL_PADDING_PX = 5;
+const LABEL_COLOR = "#ffffff";
+const LABEL_DEFAULT_POSITION: LabelPosition = "bottom-right";
+const LABEL_FONT_SIZE_PX = 14;
+const LABEL_ZOOM_SCALE_MIN = 0;
+const LABEL_ZOOM_SCALE_MAX = 100;
+const LABEL_FIT_EPSILON_PX = 25;
+const LABEL_FIT_EPSILON_MIN_PX = 0.01;
+const LABEL_OUTER_PADDING_FALLBACK_PX = 25;
+const DEFAULT_LABEL_FONT_FAMILY = "Consolas";
 
-let currentMsdfFontFntUri: string | undefined;
-let currentMsdfFontFamily: string | undefined;
-let activeBitmapFontUri: string | undefined;
-let activeBitmapFontFamily: string | undefined;
+let currentLabelFontFamily = DEFAULT_LABEL_FONT_FAMILY;
 let currentLayoutOuterPaddingPx = LABEL_OUTER_PADDING_FALLBACK_PX;
-let renderedBitmapLabels: RenderedLabel[] = [];
+let renderedLabels: RenderedLabel[] = [];
 
 const measuredLabelWidthCache = new Map<string, number>();
 
-/** Updates font source and clears active font/cache if source changed. */
-export function setLabelFontSource(
-  nextMsdfFontFntUri?: string,
-  nextMsdfFontFamily?: string,
-): void {
-  const fontSourceChanged =
-    currentMsdfFontFntUri !== nextMsdfFontFntUri ||
-    currentMsdfFontFamily !== nextMsdfFontFamily;
-
-  currentMsdfFontFntUri = nextMsdfFontFntUri;
-  currentMsdfFontFamily = nextMsdfFontFamily;
-
-  if (fontSourceChanged) {
-    activeBitmapFontFamily = undefined;
-    activeBitmapFontUri = undefined;
-    clearLabelWidthCache();
+/** Updates active raster font family used by Pixi Text labels. */
+export function setLabelFontFamily(nextFontFamily?: string): void {
+  const normalized = nextFontFamily?.trim() || DEFAULT_LABEL_FONT_FAMILY;
+  if (normalized === currentLabelFontFamily) {
+    return;
   }
+
+  currentLabelFontFamily = normalized;
+  clearLabelWidthCache();
 }
 
 /** Clears label state between full scene rerenders. */
 export function resetlabelState(): void {
-  renderedBitmapLabels = [];
+  renderedLabels = [];
   currentLayoutOuterPaddingPx = LABEL_OUTER_PADDING_FALLBACK_PX;
 }
 
 /** Keeps label text visually stable while viewport zoom changes. */
 export function applyViewportLabelScaleCompensation(viewport: Viewport): void {
-  if (renderedBitmapLabels.length === 0) {
+  if (renderedLabels.length === 0) {
     return;
   }
 
@@ -101,7 +88,7 @@ export function applyViewportLabelScaleCompensation(viewport: Viewport): void {
     Math.min(LABEL_ZOOM_SCALE_MAX, 1 / zoom),
   );
 
-  for (const { textNode, labelData, collisionBoxes } of renderedBitmapLabels) {
+  for (const { textNode, labelData, collisionBoxes } of renderedLabels) {
     textNode.scale.set(compensatedScale);
 
     const dynamicPadding = labelData.padding * compensatedScale;
@@ -129,7 +116,7 @@ export function applyViewportLabelScaleCompensation(viewport: Viewport): void {
     );
 
     textNode.text = newText;
-    positionBitmapLabel(textNode, labelData, dynamicPadding);
+    positionTextLabel(textNode, labelData, dynamicPadding);
 
     const collisionMaxWidth = computeCollisionConstrainedWidth(
       labelData,
@@ -150,7 +137,7 @@ export function applyViewportLabelScaleCompensation(viewport: Viewport): void {
         labelData.fontSize,
       );
       textNode.text = newText;
-      positionBitmapLabel(textNode, labelData, dynamicPadding);
+      positionTextLabel(textNode, labelData, dynamicPadding);
     }
 
     if (
@@ -181,16 +168,11 @@ export async function renderDirectoryLabels(options: {
     layoutOuterPaddingPx,
   } = options;
 
-  renderedBitmapLabels = [];
+  renderedLabels = [];
   currentLayoutOuterPaddingPx =
     layoutOuterPaddingPx > 0
       ? layoutOuterPaddingPx
       : LABEL_OUTER_PADDING_FALLBACK_PX;
-
-  const hasBitmapFont = await ensureBitmapFontLoaded();
-  if (!hasBitmapFont) {
-    return;
-  }
 
   const labels = mapDirectoryLabels(directories);
 
@@ -199,22 +181,22 @@ export async function renderDirectoryLabels(options: {
       continue;
     }
 
-    const bitmapLabel = new BitmapText({
+    const textLabel = new Text({
       text: "",
       style: {
-        fontFamily: activeBitmapFontFamily,
+        fontFamily: currentLabelFontFamily,
         fontSize: label.fontSize,
         fill: label.color,
       },
     });
 
     const collisionBoxes = childBoxesByParentId.get(label.id) ?? [];
-    renderedBitmapLabels.push({
-      textNode: bitmapLabel,
+    renderedLabels.push({
+      textNode: textLabel,
       labelData: label,
       collisionBoxes,
     });
-    scene.addChild(bitmapLabel);
+    scene.addChild(textLabel);
   }
 
   applyViewportLabelScaleCompensation(viewport);
@@ -223,63 +205,18 @@ export async function renderDirectoryLabels(options: {
 function clearLabelWidthCache(): void {
   measuredLabelWidthCache.clear();
 }
-
-/** Loads the current MSDF bitmap font atlas if needed. */
-async function ensureBitmapFontLoaded(): Promise<boolean> {
-  if (!currentMsdfFontFntUri || !currentMsdfFontFamily) {
-    activeBitmapFontFamily = undefined;
-    activeBitmapFontUri = undefined;
-    return false;
-  }
-
-  if (
-    activeBitmapFontFamily === currentMsdfFontFamily &&
-    activeBitmapFontUri === currentMsdfFontFntUri
-  ) {
-    return true;
-  }
-
-  try {
-    await Assets.load(currentMsdfFontFntUri);
-
-    const probe = new BitmapText({
-      text: "A",
-      style: {
-        fontFamily: currentMsdfFontFamily,
-        fontSize: LABEL_FONT_SIZE_PX,
-      },
-    });
-    probe.destroy();
-
-    activeBitmapFontFamily = currentMsdfFontFamily;
-    activeBitmapFontUri = currentMsdfFontFntUri;
-    clearLabelWidthCache();
-    return true;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn(`Failed to load MSDF font atlas: ${message}`);
-    activeBitmapFontFamily = undefined;
-    activeBitmapFontUri = undefined;
-    return false;
-  }
-}
-
-/** Measures bitmap text width using the active MSDF font and caches results. */
+/** Measures raster text width for the current font and caches results. */
 function measureLabelWidth(text: string, fontSize: number): number {
-  if (!activeBitmapFontFamily) {
-    return Number.POSITIVE_INFINITY;
-  }
-
-  const cacheKey = `${activeBitmapFontFamily}|${fontSize}|${text}`;
+  const cacheKey = `${currentLabelFontFamily}|${fontSize}|${text}`;
   const cached = measuredLabelWidthCache.get(cacheKey);
   if (cached !== undefined) {
     return cached;
   }
 
-  const measurement = new BitmapText({
+  const measurement = new Text({
     text,
     style: {
-      fontFamily: activeBitmapFontFamily,
+      fontFamily: currentLabelFontFamily,
       fontSize,
     },
   });
@@ -327,7 +264,7 @@ function fitLabelText(
   return best;
 }
 
-/** Converts directory rectangles into label descriptors for bitmap rendering. */
+/** Converts directory rectangles into label descriptors for raster text rendering. */
 function mapDirectoryLabels(directories: DirectoryLabelInput[]): Label[] {
   return directories.map((directory) => ({
     id: directory.id,
@@ -344,8 +281,8 @@ function mapDirectoryLabels(directories: DirectoryLabelInput[]): Label[] {
 }
 
 /** Places a label inside its box according to the selected anchor position. */
-function positionBitmapLabel(
-  target: BitmapText,
+function positionTextLabel(
+  target: Text,
   label: Label,
   paddingOverride?: number,
 ): void {
@@ -354,7 +291,6 @@ function positionBitmapLabel(
   const right = label.x + label.width - padding;
   const top = label.y + padding;
   const middleX = label.x + label.width / 2;
-  const middleY = label.y + label.height / 2;
   const bottom = label.y + label.height - padding;
 
   const textWidth = target.width;
@@ -372,18 +308,6 @@ function positionBitmapLabel(
     case "top-right":
       target.x = right - textWidth;
       target.y = top;
-      return;
-    case "middle-left":
-      target.x = left;
-      target.y = middleY - textHeight / 2;
-      return;
-    case "middle-center":
-      target.x = middleX - textWidth / 2;
-      target.y = middleY - textHeight / 2;
-      return;
-    case "middle-right":
-      target.x = right - textWidth;
-      target.y = middleY - textHeight / 2;
       return;
     case "bottom-left":
       target.x = left;

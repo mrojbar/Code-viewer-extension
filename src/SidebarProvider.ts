@@ -71,6 +71,18 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       ],
     };
 
+    webviewView.webview.onDidReceiveMessage((message: unknown) => {
+      if (
+        !message ||
+        typeof message !== "object" ||
+        (message as { type?: string }).type !== "webviewReady"
+      ) {
+        return;
+      }
+
+      this._controller.refresh();
+    });
+
     this._controller.attachHost(this.createHostAdapter(webviewView.webview));
   }
 

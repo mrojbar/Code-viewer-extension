@@ -10,7 +10,9 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "skipLibCheck": true,
-    "sourceMap": false
+    "sourceMap": false,
+    "inlineSourceMap": true,
+    "inlineSources": true
   },
   "include": ["src/visualization/webview/**/*.ts"]
 }
