@@ -2,12 +2,12 @@
 import { Application, Graphics } from "pixi.js";
 import { Viewport } from "pixi-viewport";
 import { LayoutRect } from "../layout/contracts";
-import { TreemapRenderManager } from "./treemapRender.js";
+import { TreemapRenderManager } from "./render/treemap.js";
 /** Flat element payload consumed by the webview renderer. */
 export interface PixiElement {
   id: string;
   label: string;
-  type: "directory" | "file";
+  type: "directory" | "file" | "function";
   parentId?: string;
   lineCount?: number;
 }
@@ -22,6 +22,7 @@ export interface GraphUpdateMessage {
 /** Renderable rectangle style+geometry descriptor used in Pixi drawing. */
 export interface Box {
   id: string;
+  parentId?: string;
   label: string;
   x: number;
   y: number;
@@ -34,11 +35,6 @@ export interface Box {
   strokeWidth: number;
 }
 
-/** Directory rectangle with an optional parent link for hierarchy grouping. */
-export interface Directory extends Box {
-  parentId?: string;
-}
-
 /** Minimal VS Code webview API surface used by this runtime. */
 export interface VsCodeApi {
   postMessage(message: unknown): void;
@@ -46,10 +42,10 @@ export interface VsCodeApi {
 
 declare const acquireVsCodeApi: (() => VsCodeApi) | undefined;
 
-/** Runtime drawable directory object paired with Pixi graphics instance. */
-export interface RenderedDirectory {
+/** Runtime drawable box object paired with Pixi graphics instance. */
+export interface RenderedBox {
   graphics: Graphics;
-  boxData: Directory;
+  boxData: Box;
 }
 
 /** Complexity summary used to tune layout settings before treemap compute. */
@@ -82,8 +78,15 @@ declare global {
   }
 }
 
+const RESIZE_DEBOUNCE_MS = 250;
+
 const vscodeApi =
   typeof acquireVsCodeApi === "function" ? acquireVsCodeApi() : undefined;
+const manager = new TreemapRenderManager(vscodeApi);
+/** Debounce handle for resize-triggered layout rerenders. */
+let resizeDebounceTimer: number | undefined;
+
+manager.bootstrap();
 
 /** Guards extension -> webview message payload shape. */
 function isGraphUpdateMessage(value: unknown): value is GraphUpdateMessage {
@@ -108,5 +111,14 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
   manager.handleGraphUpdate(event.data);
 });
 
-const manager = new TreemapRenderManager(vscodeApi);
-void manager.bootstrap();
+window.addEventListener("resize", () => {
+  manager.scheduleResizeViewportUpdate();
+  if (resizeDebounceTimer !== undefined) {
+    window.clearTimeout(resizeDebounceTimer);
+  }
+
+  resizeDebounceTimer = window.setTimeout(() => {
+    resizeDebounceTimer = undefined;
+    void manager.renderElements();
+  }, RESIZE_DEBOUNCE_MS);
+});

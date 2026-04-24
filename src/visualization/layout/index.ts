@@ -7,6 +7,4 @@ export type {
   TreemapLayoutConfig,
 } from "./contracts";
 
-export { buildLayoutTree, flattenLayoutTree } from "./callGraphLayoutAdapter";
-
 export { TreemapLayout } from "./treemapLayout";

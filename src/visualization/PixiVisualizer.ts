@@ -2,12 +2,13 @@ import {
   CallGraphData,
   DirectoryNode,
   FileNode,
+  FunctionNode,
 } from "../interfaces/callGraph";
 
 export interface PixiElement {
   id: string;
   label: string;
-  type: "directory" | "file";
+  type: "directory" | "file" | "function";
   parentId?: string;
   lineCount?: number;
 }
@@ -17,11 +18,11 @@ export interface PixiElement {
  */
 export class PixiVisualizer {
   /** Flattens call-graph tree data into Pixi-friendly render elements. */
-  public buildElementsFromData(data: CallGraphData): PixiElement[] {
+  public buildElementsFromGraph(data: CallGraphData): PixiElement[] {
     const elements: PixiElement[] = [];
 
     const walk = (
-      node: DirectoryNode | FileNode,
+      node: DirectoryNode | FileNode | FunctionNode,
       name: string,
       path: string,
       parentId?: string,
@@ -40,16 +41,29 @@ export class PixiVisualizer {
           const childPath = path ? `${path}/${childName}` : childName;
           walk(childNode, childName, childPath, currentId);
         }
-        return;
-      }
+      } else if (node.type === "file") {
+        elements.push({
+          id: currentId,
+          label: name,
+          type: "file",
+          parentId,
+          lineCount: node.lineCount,
+        });
 
-      elements.push({
-        id: currentId,
-        label: name,
-        type: "file",
-        parentId,
-        lineCount: node.lineCount,
-      });
+        // TODO: unificar esta lógica con la del directorio
+        for (const [childName, childNode] of Object.entries(node.children)) {
+          const childPath = `${path}/${childName}`;
+          walk(childNode, childName, childPath, currentId);
+        }
+      } else if (node.type === "function") {
+        elements.push({
+          id: currentId,
+          label: name,
+          type: "function",
+          parentId,
+          // TODO: linecount
+        });
+      }
     };
 
     walk(data, "root", "");

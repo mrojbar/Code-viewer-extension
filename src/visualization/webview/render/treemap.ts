@@ -1,24 +1,23 @@
 import { Application, Container, Graphics } from "pixi.js";
 import { Viewport } from "pixi-viewport";
-import { TreemapLayout } from "../layout/treemapLayout.js";
-import { LayoutNode, LayoutRect } from "../layout/contracts";
+import { TreemapLayout } from "../../layout/treemapLayout.js";
+import { LayoutNode, LayoutRect } from "../../layout/contracts.js";
 import {
-  applyViewportLabelScaleCompensation,
-  renderDirectoryLabels,
-  resetlabelState,
-  setLabelFontFamily,
-  type DirectoryLabelInput,
+  TreemapLabelRenderer,
+  type LabelRenderRef,
+  type BoxLabelInput,
 } from "./label.js";
 import type {
-  Directory,
+  Box,
   GraphUpdateMessage,
   LayoutComplexity,
   PixiElement,
-  RenderedDirectory,
+  RenderedBox,
   ValidatedLayoutResult,
   VirtualLayoutSettings,
   VsCodeApi,
-} from "./pixiView.js";
+} from "../pixiView.js";
+import { clamp, toFiniteInteger } from "../utils.js";
 
 const WORLD_PADDING_PX = 120;
 const TREEMAP_WIDTH_PX = 1000;
@@ -26,11 +25,7 @@ const TREEMAP_HEIGHT_PX = 1500;
 const TREEMAP_INNER_PADDING_PX = 50;
 const TREEMAP_OUTER_PADDING_PX = 50;
 const RESIZE_DEBOUNCE_MS = 250;
-const DIRECTORY_BACKGROUND_COLOR = 0xffffff;
-const DIRECTORY_BACKGROUND_ALPHA = 0.12;
-const DIRECTORY_STROKE_COLOR = 0xffffff;
-const DIRECTORY_STROKE_ALPHA = 0.9;
-const DIRECTORY_STROKE_WIDTH = 1;
+
 const BOX_SCALE_COMPENSATION_MIN = 0;
 const BOX_SCALE_COMPENSATION_MAX = 100;
 
@@ -55,13 +50,43 @@ const LAYOUT_DEPTH_RISK_BUFFER_PX = 50;
 const LAYOUT_NODE_AREA_FACTOR = 1.5;
 const LAYOUT_NODE_MIN_SIDE_PARENT_RATIO = 0.1;
 
+const BOX_TYPES = {
+  DIR: "directory",
+  FILE: "file",
+  FUNC: "function",
+} as const;
+
+const BOXES_RENDER_PROPS = {
+  [BOX_TYPES.DIR]: {
+    backgroundColor: 0xffffff,
+    backgroundAlpha: 0.12,
+    strokeColor: 0xffffff,
+    strokeAlpha: 0.9,
+    strokeWidth: 1,
+  },
+  [BOX_TYPES.FILE]: {
+    backgroundColor: 0x80f444,
+    backgroundAlpha: 0.12,
+    strokeColor: 0x80f444,
+    strokeAlpha: 0.9,
+    strokeWidth: 1,
+  },
+  [BOX_TYPES.FUNC]: {
+    backgroundColor: 0x4096ee,
+    backgroundAlpha: 0.24,
+    strokeColor: 0x4096ee,
+    strokeAlpha: 0.9,
+    strokeWidth: 1,
+  },
+};
+
 /** Stateful manager that owns Pixi lifecycle, layout validation, and rerenders. */
 export class TreemapRenderManager {
   /** Active Pixi application instance for this webview session. */
   private app: Application | undefined;
   /** Interactive viewport used for pan/zoom and world sizing. */
   private viewport: Viewport | undefined;
-  /** Root scene container that holds directory boxes and labels. */
+  /** Root scene container that holds boxes and labels. */
   private scene: Container | undefined;
   /** Last received element payload used for resize rerenders. */
   private pendingElements: PixiElement[] | undefined;
@@ -70,9 +95,11 @@ export class TreemapRenderManager {
   /** Monotonic render version to drop stale async render results. */
   private renderVersion = 0;
   /** Current drawable box objects for stroke-width compensation updates. */
-  private renderedDirectoryBoxes: RenderedDirectory[] = [];
+  private renderedBoxes: RenderedBox[] = [];
   /** Parent->children index used by label collision constraints. */
-  private childBoxesByParentId = new Map<string, DirectoryLabelInput[]>();
+  private childBoxesByParentId = new Map<string, BoxLabelInput[]>();
+  /** Stateful label renderer that owns Text nodes and label fit decisions. */
+  private readonly labelRenderer = new TreemapLabelRenderer();
   /** Shared treemap algorithm instance reused across attempts/renders. */
   private readonly treemapLayout = new TreemapLayout();
 
@@ -80,8 +107,13 @@ export class TreemapRenderManager {
 
   /** Applies host update payload and schedules a full render pass. */
   public handleGraphUpdate(message: GraphUpdateMessage): void {
-    setLabelFontFamily(message.editorFontFamily);
-    void this.renderElements(message.elements, true);
+    this.labelRenderer.setFontFamily(message.editorFontFamily);
+    void this.renderElements(message.elements);
+  }
+
+  /** Exposes label internals so callers can inspect current text nodes and bindings. */
+  public getLabelRenderRefs(): ReadonlyArray<LabelRenderRef> {
+    return this.labelRenderer.getRenderRefs();
   }
 
   /** Initializes Pixi/viewport wiring and performs initial render. */
@@ -132,19 +164,118 @@ export class TreemapRenderManager {
     this.app.stage.addChild(this.viewport);
     this.viewport.addChild(this.scene);
 
-    window.addEventListener("resize", () => {
-      this.scheduleResizeViewportUpdate();
-    });
-
     if (this.pendingElements) {
-      await this.renderElements(this.pendingElements, true);
+      await this.renderElements(this.pendingElements);
     } else {
-      await this.renderElements([], true);
+      await this.renderElements([]);
     }
 
     window.__pixiApp = this.app;
     window.__pixiViewport = this.viewport;
     this.api?.postMessage({ type: "webviewReady" });
+  }
+
+  /** Debounces resize events and rerenders using latest pending elements. */
+  public scheduleResizeViewportUpdate(): void {
+    if (this.resizeDebounceTimer !== undefined) {
+      window.clearTimeout(this.resizeDebounceTimer);
+    }
+
+    this.resizeDebounceTimer = window.setTimeout(() => {
+      this.resizeDebounceTimer = undefined;
+      void this.renderElements(this.pendingElements ?? []);
+    }, RESIZE_DEBOUNCE_MS);
+  }
+
+  /**
+   * Main render pipeline: build tree, validate layout, render boxes+labels, fit view.
+   * If no elements provided, will attempt to rerender with last elements
+   */
+  public async renderElements(
+    elements: PixiElement[] = this.pendingElements ?? [],
+    fitToContent: boolean = true,
+  ): Promise<void> {
+    this.pendingElements = elements;
+    window.__pixiLastElements = elements;
+
+    const currentRenderVersion = ++this.renderVersion;
+    if (!this.scene) {
+      return;
+    }
+
+    this.scene.removeChildren();
+    this.renderedBoxes = [];
+    this.labelRenderer.resetState();
+
+    const root = buildLayoutTree(elements);
+    if (!root) {
+      this.updateViewportSize();
+      return;
+    }
+
+    if (currentRenderVersion !== this.renderVersion) {
+      return;
+    }
+
+    const { width: screenWidth, height: screenHeight } = this.getScreenSize();
+    const computedSettings = computeVirtualLayoutSettings(
+      root,
+      screenWidth,
+      screenHeight,
+    );
+
+    const validation = this.computeValidatedLayout(root, computedSettings);
+
+    console.log(
+      `Treemap settings validated in ${validation.attempts} attempts.`,
+    );
+
+    const boxes = mapBoxes(validation.layoutRects).filter(
+      (box) => box.width > 0 && box.height > 0,
+    );
+
+    this.childBoxesByParentId = new Map<string, BoxLabelInput[]>();
+    for (const box of boxes) {
+      if (!box.parentId) {
+        continue;
+      }
+
+      const siblings = this.childBoxesByParentId.get(box.parentId);
+      if (siblings) {
+        siblings.push(box);
+      } else {
+        this.childBoxesByParentId.set(box.parentId, [box]);
+      }
+    }
+
+    for (const box of boxes) {
+      const boxGraphic = new Graphics();
+      this.renderedBoxes.push({ graphics: boxGraphic, boxData: box });
+      this.scene.addChild(boxGraphic);
+    }
+
+    if (!this.viewport) {
+      return;
+    }
+
+    await this.labelRenderer.renderLabels({
+      scene: this.scene,
+      viewport: this.viewport,
+      directories: boxes,
+      childBoxesByParentId: this.childBoxesByParentId,
+    });
+
+    if (currentRenderVersion !== this.renderVersion) {
+      return;
+    }
+
+    this.applyViewportScaleCompensation();
+    this.updateViewportSize();
+
+    if (fitToContent) {
+      this.fitViewportToContent();
+      this.applyViewportScaleCompensation();
+    }
   }
 
   /** Reads current renderer dimensions for world and fit calculations. */
@@ -251,7 +382,7 @@ export class TreemapRenderManager {
       Math.min(BOX_SCALE_COMPENSATION_MAX, 1 / zoom),
     );
 
-    for (const { graphics, boxData } of this.renderedDirectoryBoxes) {
+    for (const { graphics, boxData } of this.renderedBoxes) {
       graphics.clear();
       graphics
         .rect(boxData.x, boxData.y, boxData.width, boxData.height)
@@ -267,19 +398,7 @@ export class TreemapRenderManager {
         });
     }
 
-    applyViewportLabelScaleCompensation(this.viewport);
-  }
-
-  /** Debounces resize events and rerenders using latest pending elements. */
-  private scheduleResizeViewportUpdate(): void {
-    if (this.resizeDebounceTimer !== undefined) {
-      window.clearTimeout(this.resizeDebounceTimer);
-    }
-
-    this.resizeDebounceTimer = window.setTimeout(() => {
-      this.resizeDebounceTimer = undefined;
-      void this.renderElements(this.pendingElements ?? [], true);
-    }, RESIZE_DEBOUNCE_MS);
+    this.labelRenderer.applyViewportScaleCompensation(this.viewport);
   }
 
   /** Produces next retry settings by enlarging canvas and relaxing spacing. */
@@ -386,101 +505,14 @@ export class TreemapRenderManager {
       attempts: MAX_LAYOUT_VALIDATION_ATTEMPTS,
     };
   }
-
-  /** Main render pipeline: build tree, validate layout, render boxes+labels, fit view. */
-  private async renderElements(
-    elements: PixiElement[],
-    fitToContent: boolean,
-  ): Promise<void> {
-    this.pendingElements = elements;
-    window.__pixiLastElements = elements;
-
-    const currentRenderVersion = ++this.renderVersion;
-    if (!this.scene) {
-      return;
-    }
-
-    this.scene.removeChildren();
-    this.renderedDirectoryBoxes = [];
-    resetlabelState();
-
-    const root = buildLayoutTree(elements);
-    if (!root) {
-      this.updateViewportSize();
-      return;
-    }
-
-    if (currentRenderVersion !== this.renderVersion) {
-      return;
-    }
-
-    const { width: screenWidth, height: screenHeight } = this.getScreenSize();
-    const computedSettings = computeVirtualLayoutSettings(
-      root,
-      screenWidth,
-      screenHeight,
-    );
-
-    const validation = this.computeValidatedLayout(root, computedSettings);
-
-    console.log(
-      `Treemap settings validated in ${validation.attempts} attempts.`,
-    );
-
-    const directoryBoxes = mapDirectoryBoxes(validation.layoutRects).filter(
-      (directory) => directory.width > 0 && directory.height > 0,
-    );
-
-    this.childBoxesByParentId = new Map<string, DirectoryLabelInput[]>();
-    for (const directory of directoryBoxes) {
-      if (!directory.parentId) {
-        continue;
-      }
-
-      const siblings = this.childBoxesByParentId.get(directory.parentId);
-      if (siblings) {
-        siblings.push(directory);
-      } else {
-        this.childBoxesByParentId.set(directory.parentId, [directory]);
-      }
-    }
-
-    for (const directory of directoryBoxes) {
-      const box = new Graphics();
-      this.renderedDirectoryBoxes.push({ graphics: box, boxData: directory });
-      this.scene.addChild(box);
-    }
-
-    if (!this.viewport) {
-      return;
-    }
-
-    await renderDirectoryLabels({
-      scene: this.scene,
-      viewport: this.viewport,
-      directories: directoryBoxes,
-      childBoxesByParentId: this.childBoxesByParentId,
-      layoutOuterPaddingPx: validation.settings.paddingOuter,
-    });
-
-    if (currentRenderVersion !== this.renderVersion) {
-      return;
-    }
-
-    this.applyViewportScaleCompensation();
-    this.updateViewportSize();
-
-    if (fitToContent) {
-      this.fitViewportToContent();
-      this.applyViewportScaleCompensation();
-    }
-  }
 }
 
-/** Maps generic layout rectangles into directory render boxes. */
-function mapDirectoryBoxes(rects: LayoutRect[]): Directory[] {
+/** Maps generic layout rectangles into render boxes. */
+function mapBoxes(rects: LayoutRect[]): Box[] {
   return rects
-    .filter((rect) => rect.kind === "directory")
+    .filter((rect) =>
+      [BOX_TYPES.DIR, BOX_TYPES.FILE, BOX_TYPES.FUNC].includes(rect.kind),
+    )
     .map((rect) => ({
       id: rect.id,
       label: rect.label,
@@ -489,11 +521,11 @@ function mapDirectoryBoxes(rects: LayoutRect[]): Directory[] {
       y: rect.y,
       width: rect.width,
       height: rect.height,
-      backgroundColor: DIRECTORY_BACKGROUND_COLOR,
-      backgroundAlpha: DIRECTORY_BACKGROUND_ALPHA,
-      strokeColor: DIRECTORY_STROKE_COLOR,
-      strokeAlpha: DIRECTORY_STROKE_ALPHA,
-      strokeWidth: DIRECTORY_STROKE_WIDTH,
+      backgroundColor: BOXES_RENDER_PROPS[rect.kind].backgroundColor,
+      backgroundAlpha: BOXES_RENDER_PROPS[rect.kind].backgroundAlpha,
+      strokeColor: BOXES_RENDER_PROPS[rect.kind].strokeColor,
+      strokeAlpha: BOXES_RENDER_PROPS[rect.kind].strokeAlpha,
+      strokeWidth: BOXES_RENDER_PROPS[rect.kind].strokeWidth,
     }));
 }
 
@@ -636,7 +668,7 @@ function areLayoutSettingsEqual(
   );
 }
 
-/** Counts directory nodes that cannot render because their size collapsed to zero. */
+/** Counts nodes that cannot render because their size collapsed to zero. */
 function countCollapsedRects(rects: LayoutRect[]): number {
   let collapsedCount = 0;
 
@@ -690,10 +722,10 @@ function measureLayoutComplexity(root: LayoutNode): LayoutComplexity {
   return { nodeCount, maxDepth };
 }
 
-/** Builds a directory hierarchy that the shared treemap layout can consume. */
+/** Builds a hierarchy that the shared treemap layout can consume. */
 function buildLayoutTree(elements: PixiElement[]): LayoutNode | undefined {
   const validElements = elements.filter((element) =>
-    ["directory"].includes(element.type),
+    [BOX_TYPES.DIR, BOX_TYPES.FILE, BOX_TYPES.FUNC].includes(element.type),
   );
 
   if (validElements.length === 0) {
@@ -702,11 +734,16 @@ function buildLayoutTree(elements: PixiElement[]): LayoutNode | undefined {
 
   const nodesById = new Map<string, LayoutNode>();
   for (const element of validElements) {
+    /**TODO: quitar test */
+    if (element.lineCount && element.lineCount > 0) {
+      element.lineCount = toFiniteInteger(element.lineCount / 100);
+    }
+
     nodesById.set(element.id, {
       id: element.id,
       label: element.label,
-      kind: "directory",
-      weight: 1,
+      kind: element.type,
+      weight: 0, //element.lineCount || 0,
       parentId: element.parentId,
       children: [],
     });
@@ -719,18 +756,15 @@ function buildLayoutTree(elements: PixiElement[]): LayoutNode | undefined {
       continue;
     }
 
-    if (!element.parentId) {
-      roots.push(node);
-      continue;
-    }
-
-    const parent = nodesById.get(element.parentId);
+    const parent = nodesById.get(element.parentId || "");
     if (!parent) {
       roots.push(node);
       continue;
     }
-
     parent.children.push(node);
+    if (parent.kind === BOX_TYPES.DIR && node.kind === BOX_TYPES.FILE) {
+      //parent.weight += node.weight;
+    }
   }
 
   if (roots.length === 1) {
@@ -740,22 +774,8 @@ function buildLayoutTree(elements: PixiElement[]): LayoutNode | undefined {
   return {
     id: "__layout_root__",
     label: "root",
-    kind: "group",
+    kind: BOX_TYPES.DIR,
     weight: 1,
     children: roots,
   };
-}
-
-/** Keeps numeric tuning values safely inside an allowed range. */
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
-}
-
-/** Coerces possibly-invalid numeric values into safe positive integers. */
-function toFiniteInteger(value: number, minimum = 1): number {
-  if (!Number.isFinite(value)) {
-    return minimum;
-  }
-
-  return Math.max(minimum, Math.floor(value));
 }

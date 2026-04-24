@@ -1,4 +1,4 @@
-export type LayoutNodeKind = "directory" | "file" | "group";
+export type LayoutNodeKind = "directory" | "file" | "function";
 
 /**
  * Renderer-agnostic hierarchical node used as input for layout algorithms.

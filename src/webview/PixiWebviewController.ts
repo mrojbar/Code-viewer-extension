@@ -75,7 +75,7 @@ export class PixiWebviewController implements PixiWebviewLifecycle {
       return;
     }
 
-    const elements = this.visualizer.buildElementsFromData(this.graphData);
+    const elements = this.visualizer.buildElementsFromGraph(this.graphData);
     const message: UpdateGraphMessage = {
       type: "updateGraph",
       elements,
