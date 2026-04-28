@@ -5,6 +5,6 @@ export type {
   LayoutNodeKind,
   LayoutRect,
   TreemapLayoutConfig,
-} from "./contracts";
+} from "../interfaces/layout";
 
 export { TreemapLayout } from "./treemapLayout";

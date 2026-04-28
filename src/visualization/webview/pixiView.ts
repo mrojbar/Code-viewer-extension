@@ -1,8 +1,13 @@
 /** Webview runtime: boot Pixi, receive data messages, and render treemap content. */
 import { Application, Graphics } from "pixi.js";
 import { Viewport } from "pixi-viewport";
-import { LayoutRect } from "../layout/contracts";
+import { LayoutRect } from "../interfaces/layout.js";
 import { TreemapRenderManager } from "./render/treemap.js";
+import {
+  UpdateMessage,
+  UpdateGraphMessage,
+  UpdateSettingsMessage,
+} from "../interfaces/messages.js";
 /** Flat element payload consumed by the webview renderer. */
 export interface PixiElement {
   id: string;
@@ -10,13 +15,6 @@ export interface PixiElement {
   type: "directory" | "file" | "function";
   parentId?: string;
   lineCount?: number;
-}
-
-/** Message contract sent by the extension host to refresh graph data. */
-export interface GraphUpdateMessage {
-  type: "updateGraph";
-  elements: PixiElement[];
-  editorFontFamily: string;
 }
 
 /** Renderable rectangle style+geometry descriptor used in Pixi drawing. */
@@ -34,6 +32,18 @@ export interface Box {
   strokeAlpha: number;
   strokeWidth: number;
 }
+
+/** Configuration for rendering different box types. */
+export type BoxRenderProps = Record<
+  string,
+  {
+    backgroundColor: number;
+    backgroundAlpha: number;
+    strokeColor: number;
+    strokeAlpha: number;
+    strokeWidth: number;
+  }
+>;
 
 /** Minimal VS Code webview API surface used by this runtime. */
 export interface VsCodeApi {
@@ -89,26 +99,28 @@ let resizeDebounceTimer: number | undefined;
 manager.bootstrap();
 
 /** Guards extension -> webview message payload shape. */
-function isGraphUpdateMessage(value: unknown): value is GraphUpdateMessage {
+function isUpdateMessageType(
+  value: unknown,
+  type: UpdateMessage["type"],
+): value is UpdateMessage {
   if (!value || typeof value !== "object") {
     return false;
   }
 
-  const message = value as Partial<GraphUpdateMessage>;
-  return (
-    message.type === "updateGraph" &&
-    Array.isArray(message.elements) &&
-    typeof message.editorFontFamily === "string"
-  );
+  const message = value as Partial<UpdateMessage>;
+  return message.type === type;
 }
 
 /** Receives graph updates posted from the extension host. */
 window.addEventListener("message", (event: MessageEvent<unknown>) => {
-  if (!isGraphUpdateMessage(event.data)) {
+  if (isUpdateMessageType(event.data, "updateSettings")) {
+    manager.handleSettingsUpdate(event.data as UpdateSettingsMessage);
     return;
   }
-
-  manager.handleGraphUpdate(event.data);
+  if (isUpdateMessageType(event.data, "updateGraph")) {
+    manager.handleGraphUpdate(event.data as UpdateGraphMessage);
+    return;
+  }
 });
 
 window.addEventListener("resize", () => {

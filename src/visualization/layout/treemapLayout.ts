@@ -4,7 +4,7 @@ import {
   LayoutNode,
   LayoutRect,
   TreemapLayoutConfig,
-} from "./contracts";
+} from "../interfaces/layout";
 
 /**
  * D3 treemap implementation returning geometry only.

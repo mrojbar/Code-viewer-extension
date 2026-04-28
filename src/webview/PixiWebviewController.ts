@@ -1,22 +1,23 @@
-import { CallGraphData } from "../interfaces/callGraph";
+import { CallGraphData } from "../visualization/interfaces/callGraph";
 import { PixiVisualizer } from "../visualization/PixiVisualizer";
 import {
   PixiWebviewLifecycle,
   PixiWebviewResourcePaths,
   PixiWebviewResourceUris,
-  TextRenderingConfig,
-  UpdateGraphMessage,
   WebviewHost,
 } from "./contracts";
+import {
+  ExtensionConfig,
+  UpdateGraphMessage,
+  UpdateSettingsMessage,
+} from "../visualization/interfaces/messages.js";
 import { PixiWebviewHtmlBuilder } from "./PixiWebviewHtmlBuilder";
 
 /** Shared lifecycle/controller for Pixi webviews. */
 export class PixiWebviewController implements PixiWebviewLifecycle {
   private host?: WebviewHost;
   private graphData?: CallGraphData;
-  private textRenderingConfig: TextRenderingConfig = {
-    editorFontFamily: "Segoe UI",
-  };
+  private extensionConfig: ExtensionConfig = {} as ExtensionConfig;
 
   private constructor(
     private readonly visualizer: PixiVisualizer,
@@ -50,39 +51,38 @@ export class PixiWebviewController implements PixiWebviewLifecycle {
       resources,
     );
     host.setHtml(html);
-
-    this.refresh();
   }
 
-  /** Updates internal graph state and pushes a new payload when host is ready. */
-  public setGraphData(graphData: CallGraphData): void {
-    this.graphData = graphData;
-    this.refresh();
-  }
-
-  /** Updates text rendering options and pushes them to the webview runtime. */
-  public setTextRenderingConfig(config: TextRenderingConfig): void {
-    this.textRenderingConfig = {
-      ...this.textRenderingConfig,
+  /** Updates rendering options */
+  public setRenderingConfig(config: ExtensionConfig): void {
+    this.extensionConfig = {
+      ...this.extensionConfig,
       ...config,
     };
-    this.refresh();
+  }
+
+  /** Updates internal graph state */
+  public setGraphData(graphData: CallGraphData): void {
+    this.graphData = graphData;
   }
 
   /** Rebuilds payload from current state and posts it to the attached host. */
   public refresh(): void {
-    if (!this.host || !this.graphData) {
-      return;
+    if (this.extensionConfig) {
+      const message: UpdateSettingsMessage = {
+        type: "updateSettings",
+        settings: this.extensionConfig,
+      };
+      void this.host?.postMessage(message);
     }
-
-    const elements = this.visualizer.buildElementsFromGraph(this.graphData);
-    const message: UpdateGraphMessage = {
-      type: "updateGraph",
-      elements,
-      editorFontFamily: this.textRenderingConfig.editorFontFamily,
-    };
-
-    void this.host.postMessage(message);
+    if (this.graphData) {
+      const elements = this.visualizer.buildElementsFromGraph(this.graphData);
+      const message: UpdateGraphMessage = {
+        type: "updateGraph",
+        elements,
+      };
+      void this.host?.postMessage(message);
+    }
   }
 
   /** Releases host reference while preserving immutable dependencies. */

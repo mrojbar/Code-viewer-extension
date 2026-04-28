@@ -1,8 +1,9 @@
 import * as vscode from "vscode";
-import { CallGraphData } from "./interfaces/callGraph";
+import { CallGraphData } from "./visualization/interfaces/callGraph";
 import { PixiVisualizer } from "./visualization/PixiVisualizer";
 import { PixiWebviewController } from "./webview/PixiWebviewController";
-import { TextRenderingConfig, WebviewHost } from "./webview/contracts";
+import { WebviewHost } from "./webview/contracts";
+import { ExtensionConfig } from "./visualization/interfaces/messages";
 
 /** Hosts the sidebar webview and pushes graph payloads into the webview runtime. */
 export class SidebarProvider implements vscode.WebviewViewProvider {
@@ -71,12 +72,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       ],
     };
 
-    webviewView.webview.onDidReceiveMessage((message: unknown) => {
-      if (
-        !message ||
-        typeof message !== "object" ||
-        (message as { type?: string }).type !== "webviewReady"
-      ) {
+    /** Handles messages received from the webview. */
+    webviewView.webview.onDidReceiveMessage((message: Event) => {
+      if (message.type !== "webviewReady") {
         return;
       }
 
@@ -84,6 +82,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     });
 
     this._controller.attachHost(this.createHostAdapter(webviewView.webview));
+  }
+
+  /** Updates rendering options that are forwarded to the webview runtime. */
+  public setRenderingConfig(config: ExtensionConfig): void {
+    this._controller.setRenderingConfig(config);
   }
 
   /** Lifecycle entrypoint for graph updates from activation/runtime flows. */
@@ -94,11 +97,6 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   /** Lifecycle hook for explicit refresh triggers when needed. */
   public refresh(): void {
     this._controller.refresh();
-  }
-
-  /** Updates text rendering options that are forwarded to the webview runtime. */
-  public setTextRenderingConfig(config: TextRenderingConfig): void {
-    this._controller.setTextRenderingConfig(config);
   }
 
   /** Lifecycle cleanup for controller-host association. */

@@ -48,7 +48,7 @@ export interface LabelRenderRef {
 const LABEL_PADDING_PX = 5;
 const LABEL_COLOR = "#ffffff";
 const LABEL_DEFAULT_POSITION: LabelPosition = "bottom-right";
-const LABEL_FONT_SIZE_PX = 14;
+const LABEL_FONT_SIZE_PX = 12;
 const LABEL_ZOOM_SCALE_MIN = 0;
 const LABEL_ZOOM_SCALE_MAX = 100;
 const LABEL_FIT_EPSILON_PX = 25;

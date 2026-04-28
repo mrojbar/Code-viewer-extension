@@ -1,15 +1,20 @@
 import { Application, Container, Graphics } from "pixi.js";
 import { Viewport } from "pixi-viewport";
 import { TreemapLayout } from "../../layout/treemapLayout.js";
-import { LayoutNode, LayoutRect } from "../../layout/contracts.js";
+import { LayoutNode, LayoutRect } from "../../interfaces/layout.js";
 import {
   TreemapLabelRenderer,
   type LabelRenderRef,
   type BoxLabelInput,
 } from "./label.js";
 import type {
+  ExtensionConfig,
+  UpdateGraphMessage,
+  UpdateSettingsMessage,
+} from "../../interfaces/messages.js";
+import type {
   Box,
-  GraphUpdateMessage,
+  BoxRenderProps,
   LayoutComplexity,
   PixiElement,
   RenderedBox,
@@ -17,7 +22,7 @@ import type {
   VirtualLayoutSettings,
   VsCodeApi,
 } from "../pixiView.js";
-import { clamp, toFiniteInteger } from "../utils.js";
+import { clamp, toFiniteInteger, shallowEqualObject } from "../utils.js";
 
 const WORLD_PADDING_PX = 120;
 const TREEMAP_WIDTH_PX = 1000;
@@ -25,6 +30,7 @@ const TREEMAP_HEIGHT_PX = 1500;
 const TREEMAP_INNER_PADDING_PX = 50;
 const TREEMAP_OUTER_PADDING_PX = 50;
 const RESIZE_DEBOUNCE_MS = 250;
+const SETTINGS_FLUSH_DELAY_MS = 250;
 
 const BOX_SCALE_COMPENSATION_MIN = 0;
 const BOX_SCALE_COMPENSATION_MAX = 100;
@@ -49,6 +55,7 @@ const LAYOUT_RETRY_MIN_PADDING_PX = 1;
 const LAYOUT_DEPTH_RISK_BUFFER_PX = 50;
 const LAYOUT_NODE_AREA_FACTOR = 1.5;
 const LAYOUT_NODE_MIN_SIDE_PARENT_RATIO = 0.1;
+const LAYOUT_NODE_MAX_NORMALIZED_WEIGHT = 1;
 
 const BOX_TYPES = {
   DIR: "directory",
@@ -56,7 +63,7 @@ const BOX_TYPES = {
   FUNC: "function",
 } as const;
 
-const BOXES_RENDER_PROPS = {
+const BOXES_RENDER_PROPS: BoxRenderProps = {
   [BOX_TYPES.DIR]: {
     backgroundColor: 0xffffff,
     backgroundAlpha: 0.12,
@@ -102,13 +109,61 @@ export class TreemapRenderManager {
   private readonly labelRenderer = new TreemapLabelRenderer();
   /** Shared treemap algorithm instance reused across attempts/renders. */
   private readonly treemapLayout = new TreemapLayout();
+  /** Latest host-provided rendering settings. */
+  private settings: ExtensionConfig = {} as ExtensionConfig;
+  /** Guards one flush per animation frame to coalesce bursty updates. */
+  private renderFlushScheduled = false;
+  /** Delayed flush for settings-only updates; canceled if graph arrives. */
+  private settingsFlushTimer: number | undefined;
+  /** If true, should fit camera to content bounds. */
+  private fitToContent = true;
 
   constructor(private readonly api: VsCodeApi | undefined) {}
 
   /** Applies host update payload and schedules a full render pass. */
-  public handleGraphUpdate(message: GraphUpdateMessage): void {
-    this.labelRenderer.setFontFamily(message.editorFontFamily);
-    void this.renderElements(message.elements);
+  public handleGraphUpdate(message: UpdateGraphMessage): void {
+    if (this.settingsFlushTimer !== undefined) {
+      window.clearTimeout(this.settingsFlushTimer);
+      this.settingsFlushTimer = undefined;
+    }
+
+    this.pendingElements = message.elements as PixiElement[];
+    this.scheduleRenderFlush();
+  }
+
+  public handleSettingsUpdate(message: UpdateSettingsMessage): void {
+    const nextSettings = message.settings;
+    const currentSettings = this.settings;
+    if (shallowEqualObject(currentSettings, nextSettings)) {
+      return;
+    }
+    this.settings = nextSettings;
+    this.labelRenderer.setFontFamily(this.settings.editorFontFamily);
+
+    if (this.settingsFlushTimer !== undefined) {
+      window.clearTimeout(this.settingsFlushTimer);
+    }
+
+    this.settingsFlushTimer = window.setTimeout(() => {
+      this.settingsFlushTimer = undefined;
+      this.scheduleRenderFlush();
+    }, SETTINGS_FLUSH_DELAY_MS);
+  }
+
+  /** Condenses scheduled host updates into one render per animation frame. */
+  private scheduleRenderFlush(): void {
+    if (this.renderFlushScheduled) {
+      return;
+    }
+
+    this.renderFlushScheduled = true;
+    window.requestAnimationFrame(async () => {
+      this.renderFlushScheduled = false;
+      if (!this.pendingElements) {
+        return;
+      }
+      await this.renderElements(this.pendingElements, this.fitToContent);
+    });
   }
 
   /** Exposes label internals so callers can inspect current text nodes and bindings. */
@@ -195,6 +250,10 @@ export class TreemapRenderManager {
     elements: PixiElement[] = this.pendingElements ?? [],
     fitToContent: boolean = true,
   ): Promise<void> {
+    if (elements.length === 0) {
+      return;
+    }
+
     this.pendingElements = elements;
     window.__pixiLastElements = elements;
 
@@ -207,7 +266,7 @@ export class TreemapRenderManager {
     this.renderedBoxes = [];
     this.labelRenderer.resetState();
 
-    const root = buildLayoutTree(elements);
+    const root = this.buildLayoutTree(elements);
     if (!root) {
       this.updateViewportSize();
       return;
@@ -456,6 +515,7 @@ export class TreemapRenderManager {
         paddingOuter: currentSettings.paddingOuter,
         round: currentSettings.round,
         includeRoot: true,
+        sortDescending: this.settings.sortNodesByDescendingWeight,
       });
 
       if (passesValidation(layoutRects)) {
@@ -485,6 +545,7 @@ export class TreemapRenderManager {
       paddingOuter: fallback.paddingOuter,
       round: fallback.round,
       includeRoot: true,
+      sortDescending: this.settings.sortNodesByDescendingWeight,
     });
 
     if (passesValidation(fallbackRects)) {
@@ -503,6 +564,70 @@ export class TreemapRenderManager {
       layoutRects: lastResult,
       settings: lastSettings,
       attempts: MAX_LAYOUT_VALIDATION_ATTEMPTS,
+    };
+  }
+
+  /** Builds a hierarchy that the shared treemap layout can consume. */
+  private buildLayoutTree(elements: PixiElement[]): LayoutNode | undefined {
+    const validElements = elements.filter((element) =>
+      [BOX_TYPES.DIR, BOX_TYPES.FILE, BOX_TYPES.FUNC].includes(element.type),
+    );
+
+    if (validElements.length === 0) {
+      return undefined;
+    }
+
+    const nodesById = new Map<string, LayoutNode>();
+    let maxWeight = 1;
+
+    for (const element of validElements) {
+      const rawWeight = Math.max(0, element.lineCount ?? 0);
+
+      const node: LayoutNode = {
+        id: element.id,
+        label: element.label,
+        kind: element.type,
+        weight: this.settings.setFileLinesAsWeight ? rawWeight : 0,
+        parentId: element.parentId,
+        children: [],
+      };
+
+      if (rawWeight > maxWeight) {
+        maxWeight = rawWeight;
+      }
+      nodesById.set(element.id, node);
+    }
+
+    const roots: LayoutNode[] = [];
+
+    for (const node of nodesById.values()) {
+      if (!node) {
+        continue;
+      }
+
+      if (this.settings.normalizeTreemapWeight) {
+        const normalizedWeight = node.weight / maxWeight;
+        node.weight = normalizedWeight * LAYOUT_NODE_MAX_NORMALIZED_WEIGHT;
+      }
+
+      const parent = nodesById.get(node.parentId || "");
+      if (!parent) {
+        roots.push(node);
+        continue;
+      }
+      parent.children.push(node);
+    }
+
+    if (roots.length === 1) {
+      return roots[0];
+    }
+
+    return {
+      id: "__layout_root__",
+      label: "root",
+      kind: BOX_TYPES.DIR,
+      weight: 0,
+      children: roots,
     };
   }
 }
@@ -720,62 +845,4 @@ function measureLayoutComplexity(root: LayoutNode): LayoutComplexity {
 
   console.log("Layout complexity:", { nodeCount, maxDepth });
   return { nodeCount, maxDepth };
-}
-
-/** Builds a hierarchy that the shared treemap layout can consume. */
-function buildLayoutTree(elements: PixiElement[]): LayoutNode | undefined {
-  const validElements = elements.filter((element) =>
-    [BOX_TYPES.DIR, BOX_TYPES.FILE, BOX_TYPES.FUNC].includes(element.type),
-  );
-
-  if (validElements.length === 0) {
-    return undefined;
-  }
-
-  const nodesById = new Map<string, LayoutNode>();
-  for (const element of validElements) {
-    /**TODO: quitar test */
-    if (element.lineCount && element.lineCount > 0) {
-      element.lineCount = toFiniteInteger(element.lineCount / 100);
-    }
-
-    nodesById.set(element.id, {
-      id: element.id,
-      label: element.label,
-      kind: element.type,
-      weight: 0, //element.lineCount || 0,
-      parentId: element.parentId,
-      children: [],
-    });
-  }
-
-  const roots: LayoutNode[] = [];
-  for (const element of validElements) {
-    const node = nodesById.get(element.id);
-    if (!node) {
-      continue;
-    }
-
-    const parent = nodesById.get(element.parentId || "");
-    if (!parent) {
-      roots.push(node);
-      continue;
-    }
-    parent.children.push(node);
-    if (parent.kind === BOX_TYPES.DIR && node.kind === BOX_TYPES.FILE) {
-      //parent.weight += node.weight;
-    }
-  }
-
-  if (roots.length === 1) {
-    return roots[0];
-  }
-
-  return {
-    id: "__layout_root__",
-    label: "root",
-    kind: BOX_TYPES.DIR,
-    weight: 1,
-    children: roots,
-  };
 }

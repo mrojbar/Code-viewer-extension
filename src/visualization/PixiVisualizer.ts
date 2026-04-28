@@ -3,7 +3,7 @@ import {
   DirectoryNode,
   FileNode,
   FunctionNode,
-} from "../interfaces/callGraph";
+} from "./interfaces/callGraph";
 
 export interface PixiElement {
   id: string;
@@ -17,6 +17,19 @@ export interface PixiElement {
  * Converts call-graph data into a flat tree payload suitable for a Pixi renderer.
  */
 export class PixiVisualizer {
+  /** Converts a function range string like "12:45" into a line span (33). */
+  private getFunctionLineCount(range: string): number {
+    const [startRaw, endRaw] = range.split(":", 2);
+    const start = Number(startRaw);
+    const end = Number(endRaw);
+
+    if (!Number.isFinite(start) || !Number.isFinite(end)) {
+      return 0;
+    }
+
+    return Math.max(0, end - start);
+  }
+
   /** Flattens call-graph tree data into Pixi-friendly render elements. */
   public buildElementsFromGraph(data: CallGraphData): PixiElement[] {
     const elements: PixiElement[] = [];
@@ -35,6 +48,7 @@ export class PixiVisualizer {
           label: name || "root",
           type: "directory",
           parentId,
+          lineCount: 0,
         });
 
         for (const [childName, childNode] of Object.entries(node.children)) {
@@ -61,7 +75,7 @@ export class PixiVisualizer {
           label: name,
           type: "function",
           parentId,
-          // TODO: linecount
+          lineCount: this.getFunctionLineCount(node.lines),
         });
       }
     };

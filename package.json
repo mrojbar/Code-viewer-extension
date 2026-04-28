@@ -44,10 +44,6 @@
     },
     "commands": [
       {
-        "command": "testextension.helloWorld",
-        "title": "Hello World"
-      },
-      {
         "command": "testextension.startPythonRuntime",
         "title": "Start Python Runtime"
       },
@@ -59,14 +55,42 @@
         "command": "testextension.pythonRuntimeStatus",
         "title": "Python Runtime Status"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "@Test Extension",
+      "properties": {
+        "testextension.normalizeTreemapWeight": {
+          "type": "boolean",
+          "default": false,
+          "description": "Normalize treemap weight"
+        },
+        "testextension.normalizedTreemapMaxWeight": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0,
+          "maximum": 10,
+          "description": "Maximum node weight for the normalized treemap. Can be used to make nodes with small weight more visible. Only has an effect if 'Normalize treemap weight' is enabled."
+        },
+        "testextension.sortNodesByDescendingWeight": {
+          "type": "boolean",
+          "default": true,
+          "description": "Sort treemap nodes in descending order"
+        },
+        "testextension.setFileLinesAsWeight": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use file lines as file weight. This causes file nodes to have some empty space depending on how much space nodes inside take"
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "pnpm run compile",
+    "generate:settings-schema": "node ./scripts/generate-settings-schema.mjs",
     "compile": "pnpm run compile:extension && pnpm run compile:webview",
-    "compile:extension": "tsc -p ./",
+    "compile:extension": "pnpm run generate:settings-schema && tsc -p ./",
     "compile:webview": "tsc -p ./tsconfig.webview.json",
-    "watch": "pnpm run compile:webview && tsc -watch -p ./",
+    "watch": "pnpm run generate:settings-schema && pnpm run compile:webview && tsc -watch -p ./",
     "watch:webview": "tsc -watch -p ./tsconfig.webview.json",
     "pretest": "pnpm run compile && pnpm run lint",
     "lint": "eslint src",

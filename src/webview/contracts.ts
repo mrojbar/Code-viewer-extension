@@ -1,4 +1,5 @@
-import { CallGraphData } from "../interfaces/callGraph";
+import { CallGraphData } from "../visualization/interfaces/callGraph";
+import { ExtensionConfig } from "../visualization/interfaces/messages";
 
 /** Host contract that any webview container adapter can implement. */
 export interface WebviewHost {
@@ -24,22 +25,11 @@ export interface PixiWebviewResourceUris {
   scriptUri: string;
 }
 
-/** Payload contract sent from extension host to webview runtime. */
-export interface UpdateGraphMessage {
-  type: "updateGraph";
-  elements: unknown[];
-  editorFontFamily: string;
-}
-
-export interface TextRenderingConfig {
-  editorFontFamily: string;
-}
-
 /** Lifecycle contract used by host adapters (sidebar, panel, etc.). */
 export interface PixiWebviewLifecycle {
   attachHost(host: WebviewHost): void;
   setGraphData(graphData: CallGraphData): void;
-  setTextRenderingConfig(config: TextRenderingConfig): void;
+  setRenderingConfig(config: ExtensionConfig): void;
   refresh(): void;
   dispose(): void;
 }

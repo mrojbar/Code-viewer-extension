@@ -3,8 +3,10 @@ import * as path from "path";
 import { RuntimeManager } from "./RuntimeManager";
 import { SidebarProvider } from "./SidebarProvider";
 import { PixiVisualizer } from "./visualization/PixiVisualizer";
-import { CallGraphData } from "./interfaces/callGraph";
+import { CallGraphData } from "./visualization/interfaces/callGraph";
 import { getEditorFontFamily } from "./utils/font";
+import { ExtensionSettings } from "./settings";
+import { ExtensionConfig } from "./visualization/interfaces/messages";
 
 export async function activate(context: vscode.ExtensionContext) {
   const runtimeManager = new RuntimeManager(context);
@@ -51,29 +53,36 @@ export async function activate(context: vscode.ExtensionContext) {
     );
   });
 
-  const disposable = vscode.commands.registerCommand(
-    "testextension.helloWorld",
-    () => {
-      vscode.window.showInformationMessage("Hello Vscode from TestExtension!");
-    },
-  );
-
   /**
    * Test: render graph
    */
   const pixiVis = new PixiVisualizer();
   const editorFontFamily = getEditorFontFamily();
+  const extensionSettings = ExtensionSettings.getInstance();
+  extensionSettings.initialize(context);
 
   const sidebarProvider = SidebarProvider.create(
     context.extensionUri,
     pixiVis,
     [context.globalStorageUri],
   );
-  sidebarProvider.setTextRenderingConfig({
+
+  // Initial settings config and dyanmic bind to push settings updates on change
+  sidebarProvider.setRenderingConfig({
     editorFontFamily,
+    ...extensionSettings.snapshot(),
+  } as ExtensionConfig);
+
+  extensionSettings.bindAll((values) => {
+    sidebarProvider.setRenderingConfig({
+      editorFontFamily,
+      ...values,
+    } as ExtensionConfig);
+    sidebarProvider.refresh();
   });
 
   try {
+    // TODO: replace with dynamic runtime data once implemented
     const structFile = path.join(
       context.extensionUri.fsPath,
       "structure_analyzer",
@@ -103,7 +112,6 @@ export async function activate(context: vscode.ExtensionContext) {
   });
 
   context.subscriptions.push(
-    disposable,
     startRuntimeCommand,
     stopRuntimeCommand,
     runtimeStatusCommand,
