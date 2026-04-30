@@ -7,6 +7,7 @@ export type ExtensionConfig = {
   sortNodesByDescendingWeight: boolean;
   setFileLinesAsWeight: boolean;
   normalizedTreemapMaxWeight: number;
+  treemapOuterPaddingPercent: number;
 };
 
 export interface UpdateMessage {

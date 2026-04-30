@@ -7,6 +7,7 @@ import { CallGraphData } from "./visualization/interfaces/callGraph";
 import { getEditorFontFamily } from "./utils/font";
 import { ExtensionSettings } from "./settings";
 import { ExtensionConfig } from "./visualization/interfaces/messages";
+import { SettingsWebviewProvider } from "./SettingsWebviewProvider";
 
 export async function activate(context: vscode.ExtensionContext) {
   const runtimeManager = new RuntimeManager(context);
@@ -81,6 +82,14 @@ export async function activate(context: vscode.ExtensionContext) {
     sidebarProvider.refresh();
   });
 
+  const settingsProvider = new SettingsWebviewProvider(context.extensionUri);
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(
+      "testextension-settings-view",
+      settingsProvider,
+    ),
+  );
+
   try {
     // TODO: replace with dynamic runtime data once implemented
     const structFile = path.join(
@@ -115,6 +124,7 @@ export async function activate(context: vscode.ExtensionContext) {
     startRuntimeCommand,
     stopRuntimeCommand,
     runtimeStatusCommand,
+    settingsProvider,
   );
 }
 

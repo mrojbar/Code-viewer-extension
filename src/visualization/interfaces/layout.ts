@@ -18,8 +18,6 @@ export interface LayoutNode {
 export interface LayoutConfig {
   width: number;
   height: number;
-  paddingOuter?: number;
-  paddingInner?: number;
   round?: boolean;
 }
 
@@ -53,4 +51,6 @@ export interface LayoutAlgorithm<TConfig extends LayoutConfig = LayoutConfig> {
 export interface TreemapLayoutConfig extends LayoutConfig {
   includeRoot?: boolean;
   sortDescending?: boolean;
+  maxDepth?: number;
+  topPaddingPerc?: number;
 }

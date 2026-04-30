@@ -48,10 +48,9 @@ const VIEWPORT_WHEEL_SMOOTH = 5;
 const VIEWPORT_DECELERATE_FRICTION = 0.9;
 const VIEWPORT_DECELERATE_MIN_SPEED = 0.02;
 
-const MAX_LAYOUT_VALIDATION_ATTEMPTS = 6;
+const MAX_LAYOUT_VALIDATION_ATTEMPTS = 60;
 const LAYOUT_RETRY_SIZE_MULTIPLIER = 1.35;
-const LAYOUT_RETRY_PADDING_SHRINK_FACTOR = 0.75;
-const LAYOUT_RETRY_MIN_PADDING_PX = 1;
+const LAYOUT_NODE_MIN_PADDING_PERC = 0.02;
 const LAYOUT_DEPTH_RISK_BUFFER_PX = 50;
 const LAYOUT_NODE_AREA_FACTOR = 1.5;
 const LAYOUT_NODE_MIN_SIDE_PARENT_RATIO = 0.1;
@@ -467,9 +466,8 @@ export class TreemapRenderManager {
     return normalizeLayoutSettings({
       width: Math.ceil(previous.width * LAYOUT_RETRY_SIZE_MULTIPLIER),
       height: Math.ceil(previous.height * LAYOUT_RETRY_SIZE_MULTIPLIER),
-      paddingInner: previous.paddingInner * LAYOUT_RETRY_PADDING_SHRINK_FACTOR,
-      paddingOuter: previous.paddingOuter * LAYOUT_RETRY_PADDING_SHRINK_FACTOR,
-      round: false,
+      maxDepth: previous.maxDepth,
+      round: previous.round,
     });
   }
 
@@ -480,8 +478,7 @@ export class TreemapRenderManager {
     return normalizeLayoutSettings({
       width: Math.max(base.width, LAYOUT_VIRTUAL_MAX_SIDE_PX),
       height: Math.max(base.height, LAYOUT_VIRTUAL_MAX_SIDE_PX),
-      paddingInner: LAYOUT_RETRY_MIN_PADDING_PX,
-      paddingOuter: LAYOUT_RETRY_MIN_PADDING_PX,
+      maxDepth: base.maxDepth,
       round: false,
     });
   }
@@ -511,8 +508,10 @@ export class TreemapRenderManager {
       const layoutRects = this.treemapLayout.compute(root, {
         width: currentSettings.width,
         height: currentSettings.height,
-        paddingInner: currentSettings.paddingInner,
-        paddingOuter: currentSettings.paddingOuter,
+        maxDepth: currentSettings.maxDepth,
+        topPaddingPerc:
+          this.settings.treemapOuterPaddingPercent ??
+          LAYOUT_NODE_MIN_PADDING_PERC,
         round: currentSettings.round,
         includeRoot: true,
         sortDescending: this.settings.sortNodesByDescendingWeight,
@@ -541,8 +540,10 @@ export class TreemapRenderManager {
     const fallbackRects = this.treemapLayout.compute(root, {
       width: fallback.width,
       height: fallback.height,
-      paddingInner: fallback.paddingInner,
-      paddingOuter: fallback.paddingOuter,
+      maxDepth: fallback.maxDepth,
+      topPaddingPerc:
+        this.settings.treemapOuterPaddingPercent ??
+        LAYOUT_NODE_MIN_PADDING_PERC,
       round: fallback.round,
       includeRoot: true,
       sortDescending: this.settings.sortNodesByDescendingWeight,
@@ -700,19 +701,19 @@ function computeVirtualLayoutSettings(
     Math.log2(nodeCount + 1) / LAYOUT_PADDING_LOG_DIVISOR,
     maxDepth / LAYOUT_PADDING_DEPTH_DIVISOR,
   );
-  const paddingInner = clamp(
+  const paddingInnerEst = clamp(
     TREEMAP_INNER_PADDING_PX / paddingScale,
     2,
     TREEMAP_INNER_PADDING_PX,
   );
-  const paddingOuter = clamp(
+  const paddingOuterEst = clamp(
     TREEMAP_OUTER_PADDING_PX / paddingScale,
     2,
     TREEMAP_OUTER_PADDING_PX,
   );
 
   const depthRiskMinSide = Math.ceil(
-    Math.max(0, maxDepth - 1) * 2 * (paddingInner + paddingOuter) +
+    Math.max(0, maxDepth - 1) * 2 * (paddingInnerEst + paddingOuterEst) +
       LAYOUT_DEPTH_RISK_BUFFER_PX,
   );
 
@@ -727,7 +728,7 @@ function computeVirtualLayoutSettings(
   }
 
   const minAreaForNodeDensity =
-    nodeCount * Math.pow(paddingInner + 2, 2) * LAYOUT_NODE_AREA_FACTOR;
+    nodeCount * Math.pow(paddingInnerEst + 2, 2) * LAYOUT_NODE_AREA_FACTOR;
   const currentArea = width * height;
   if (currentArea < minAreaForNodeDensity) {
     const growthForDensity = Math.sqrt(
@@ -748,8 +749,7 @@ function computeVirtualLayoutSettings(
   return {
     width: Math.max(1, Math.floor(width)),
     height: Math.max(1, Math.floor(height)),
-    paddingInner,
-    paddingOuter,
+    maxDepth,
     // Disabling rounding for very dense trees keeps tiny boxes from collapsing away.
     round: !(
       nodeCount > LAYOUT_DISABLE_ROUND_NODE_THRESHOLD ||
@@ -773,8 +773,7 @@ function normalizeLayoutSettings(
       1,
       LAYOUT_VIRTUAL_MAX_SIDE_PX,
     ),
-    paddingInner: Math.max(LAYOUT_RETRY_MIN_PADDING_PX, settings.paddingInner),
-    paddingOuter: Math.max(LAYOUT_RETRY_MIN_PADDING_PX, settings.paddingOuter),
+    maxDepth: Math.max(0, settings.maxDepth),
     round: settings.round,
   };
 }
@@ -787,8 +786,7 @@ function areLayoutSettingsEqual(
   return (
     a.width === b.width &&
     a.height === b.height &&
-    Math.abs(a.paddingInner - b.paddingInner) < 0.0001 &&
-    Math.abs(a.paddingOuter - b.paddingOuter) < 0.0001 &&
+    a.maxDepth === b.maxDepth &&
     a.round === b.round
   );
 }

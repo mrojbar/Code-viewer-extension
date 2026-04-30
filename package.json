@@ -35,6 +35,12 @@
     "views": {
       "testextension-sidebar": [
         {
+          "icon": "",
+          "type": "webview",
+          "id": "testextension-settings-view",
+          "name": "Settings"
+        },
+        {
           "type": "webview",
           "id": "testextension-sidebar-view",
           "name": "Test Extension View",
@@ -80,6 +86,13 @@
           "type": "boolean",
           "default": false,
           "description": "Use file lines as file weight. This causes file nodes to have some empty space depending on how much space nodes inside take"
+        },
+        "testextension.treemapOuterPaddingPercent": {
+          "type": "number",
+          "default": 0.04,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Percentage of the smallest side used as outermost padding for treemap layout (0-1)."
         }
       }
     }
@@ -109,6 +122,7 @@
   },
   "dependencies": {
     "@a-issaoui/universal-msdf-generator": "^1.10.0",
+    "@vscode/webview-ui-toolkit": "^1.4.0",
     "d3-hierarchy": "^3.1.2",
     "elkjs": "^0.11.1",
     "pixi-viewport": "^6.0.3",

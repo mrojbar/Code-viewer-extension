@@ -1,4 +1,4 @@
-import { hierarchy, treemap } from "d3-hierarchy";
+import { hierarchy, treemap, HierarchyRectangularNode } from "d3-hierarchy";
 import {
   LayoutAlgorithm,
   LayoutNode,
@@ -6,17 +6,26 @@ import {
   TreemapLayoutConfig,
 } from "../interfaces/layout";
 
+const MIN_PADDIN_PERC = 0.02;
+
 /**
  * D3 treemap implementation returning geometry only.
  */
+
 export class TreemapLayout implements LayoutAlgorithm<TreemapLayoutConfig> {
   public readonly id = "d3-treemap";
 
   public compute(root: LayoutNode, config: TreemapLayoutConfig): LayoutRect[] {
     const width = Math.max(1, Math.floor(config.width));
     const height = Math.max(1, Math.floor(config.height));
-    const paddingInner = config.paddingInner ?? 10;
-    const paddingOuter = config.paddingOuter ?? 10;
+
+    config.topPaddingPerc = config.topPaddingPerc ?? MIN_PADDIN_PERC;
+    const maxDepth = config.maxDepth ?? 0;
+
+    const pInner = (node: HierarchyRectangularNode<LayoutNode>) =>
+      dynamicPadding(node, config.topPaddingPerc, MIN_PADDIN_PERC, maxDepth);
+    const pOuter = (node: HierarchyRectangularNode<LayoutNode>) =>
+      dynamicPadding(node, config.topPaddingPerc, MIN_PADDIN_PERC, maxDepth);
     const startTime = performance.now();
 
     const rootHierarchy = hierarchy<LayoutNode>(
@@ -28,23 +37,34 @@ export class TreemapLayout implements LayoutAlgorithm<TreemapLayoutConfig> {
       rootHierarchy.sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
     }
 
-    const treemapLayout = treemap<LayoutNode>()
+    let treemapLayout = treemap<LayoutNode>()
       .size([width, height])
-      .paddingOuter(paddingOuter)
-      .paddingInner(paddingInner)
       .round(config.round ?? true);
+
+    treemapLayout = treemapLayout
+      .paddingOuter((node) => pOuter(node))
+      .paddingInner((node) => pInner(node));
 
     const laidOutRoot = treemapLayout(rootHierarchy);
     const includeRoot = config.includeRoot ?? false;
     const endTime = performance.now();
+
+    const paddingsByDepth: Record<number, number> = {};
+    for (let d = 0; d <= maxDepth; d++) {
+      paddingsByDepth[d] = dynamicPadding(
+        { depth: d } as HierarchyRectangularNode<LayoutNode>,
+        config.topPaddingPerc,
+        MIN_PADDIN_PERC,
+        maxDepth,
+      );
+    }
 
     console.log(
       `Computing treemap layout with ${root.children.length} top-level nodes and config:`,
       {
         width,
         height,
-        paddingInner,
-        paddingOuter,
+        paddingsByDepth,
       },
       `In ${(endTime - startTime).toFixed(2)} ms`,
     );
@@ -65,4 +85,28 @@ export class TreemapLayout implements LayoutAlgorithm<TreemapLayoutConfig> {
         height: Math.max(0, node.y1 - node.y0),
       }));
   }
+}
+
+/**
+ * Dynamically computes padding based on node depth, with exponential decay from Padmax at the root to Padmin at maxDepth.
+ */
+function dynamicPadding(
+  node: HierarchyRectangularNode<LayoutNode>,
+  padmaxPerc: number | undefined,
+  padminPerc: number | undefined,
+  maxDepth: number,
+): number {
+  const nodeW = node.x1 - node.x0;
+  const nodeH = node.y1 - node.y0;
+  const avgSide = Math.sqrt(nodeW * nodeH);
+
+  // TODO: test
+  const padmax = padmaxPerc !== undefined ? avgSide * padmaxPerc : 0;
+  const padmin = padminPerc !== undefined ? avgSide * padminPerc : 0;
+
+  const depth = Math.min(node.depth ?? 0, maxDepth);
+  // Exponential decay: Padmax at depth=0, Padmin at depth=maxDepth
+  const expPadding = padmin * Math.pow(padmax / padmin, 1 - depth / maxDepth);
+  const padding = Math.min(avgSide / 2, expPadding);
+  return padding;
 }

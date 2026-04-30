@@ -68,8 +68,7 @@ export interface LayoutComplexity {
 export interface VirtualLayoutSettings {
   width: number;
   height: number;
-  paddingInner: number;
-  paddingOuter: number;
+  maxDepth: number;
   round: boolean;
 }
 

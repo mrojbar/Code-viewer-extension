@@ -1,0 +1,63 @@
+body {
+  padding: 10px;
+  font-family: var(--vscode-font-family);
+  color: var(--vscode-foreground);
+}
+
+.setting-row {
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 2px;
+}
+
+.setting-row > * {
+  max-width: min(85%, 400px);
+  padding-right: 15px;
+}
+
+.setting-row:hover {
+  background-color: var(--vscode-list-hoverBackground);
+}
+
+.setting-control-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.setting-control-row vscode-text-field {
+  width: 70px;
+}
+
+/* Custom styling for native slider */
+.native-slider {
+  flex-grow: 1;
+  height: 4px;
+
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+  outline: none;
+  border-radius: 2px;
+  opacity: 1 !important;
+}
+
+.native-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--vscode-button-background);
+  cursor: pointer;
+}
+
+.native-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--vscode-button-background);
+  cursor: pointer;
+}
