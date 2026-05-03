@@ -1,24 +1,41 @@
-const vscode = acquireVsCodeApi();
+window.vscodeApi = window.vscodeApi || acquireVsCodeApi();
 
-// Exposed globally so inline event handlers (onchange) can trigger them
+function updateModifiedIndicator(key, value) {
+  const row = document.querySelector(`.setting-row[data-key="${key}"]`);
+  if (!row) {
+    return;
+  }
+  const defaultVal = row.getAttribute("data-default");
+  const isConfigured = String(value) !== String(defaultVal);
+  row.classList.toggle("is-configured", isConfigured);
+}
+
+document.addEventListener("click", (e) => {
+  const resetBtn = e.target.closest(".settings-reset-btn");
+  if (resetBtn) {
+    window.vscodeApi.postMessage({ command: "resetSettings" });
+  }
+});
+
 window.updateSetting = function (key, value, type) {
   if (type === "number") {
     value = parseFloat(value);
   }
-  vscode.postMessage({ command: "updateSetting", key, value });
+  window.vscodeApi.postMessage({ command: "updateSetting", key, value });
+  updateModifiedIndicator(key, value);
 };
 
 window.syncSliderAndInput = function (key) {
   const slider = document.getElementById(key + "-slider");
   const input = document.getElementById(key + "-input");
   input.value = slider.value;
+  updateModifiedIndicator(key, slider.value);
 };
 
 window.syncInputAndSlider = function (key) {
   const slider = document.getElementById(key + "-slider");
   const input = document.getElementById(key + "-input");
 
-  // Validate limits
   let val = parseFloat(input.value);
   const min = parseFloat(slider.min);
   const max = parseFloat(slider.max);
@@ -32,7 +49,7 @@ window.syncInputAndSlider = function (key) {
 
   input.value = val;
   slider.value = val;
-
+  updateModifiedIndicator(key, val);
   window.commitNumber(key);
 };
 

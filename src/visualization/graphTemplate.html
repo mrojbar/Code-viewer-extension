@@ -4,6 +4,7 @@
     <!-- Webview shell that hosts the Pixi canvas and runtime module entrypoint. -->
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="${codiconUri}" />
     <style>
       html,
       body {
@@ -21,10 +22,323 @@
         height: 100%;
         display: block;
       }
+
+      .toolbar {
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        right: 8px;
+        display: flex;
+        justify-content: space-between;
+        z-index: 10;
+        pointer-events: none;
+      }
+
+      .toolbar-left,
+      .toolbar-right {
+        display: flex;
+        gap: 4px;
+        pointer-events: none;
+      }
+
+      .toolbar-left .toolbar-btn,
+      .toolbar-right .toolbar-btn {
+        pointer-events: auto;
+      }
+
+      .toolbar-btn {
+        width: 28px;
+        height: 28px;
+        padding: 4px;
+        border: none;
+        border-radius: 3px;
+        background: transparent;
+        color: var(--vscode-icon-foreground);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .toolbar-btn:hover {
+        background: var(
+          --vscode-toolbar-hoverBackground,
+          var(
+            --vscode-button-secondaryHoverBackground,
+            rgba(255, 255, 255, 0.1)
+          )
+        );
+      }
+
+      .toolbar-btn .codicon {
+        font-size: 16px;
+        width: 16px;
+        height: 16px;
+      }
+
+      #btn-warning {
+        color: var(--vscode-editorWarning-foreground);
+      }
+
+      .settings-popup {
+        position: absolute;
+        top: 40px;
+        right: 8px;
+        min-width: 280px;
+        max-width: 400px;
+        max-height: 70vh;
+        overflow-y: auto;
+        background: var(
+          --vscode-dropdown-background,
+          var(--vscode-editor-background)
+        );
+        border: 1px solid
+          var(--vscode-dropdown-border, var(--vscode-panel-border));
+        border-radius: 3px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.36);
+        padding: 12px;
+        z-index: 20;
+        display: none;
+        font-family: var(--vscode-font-family);
+        color: var(--vscode-foreground);
+      }
+
+      .settings-popup.visible {
+        display: block;
+      }
+
+      .warning-popup {
+        position: absolute;
+        top: 40px;
+        left: 8px;
+        min-width: 320px;
+        max-width: 500px;
+        max-height: 70vh;
+        overflow-y: auto;
+        background: var(
+          --vscode-inputValidation-warningBackground,
+          var(--vscode-dropdown-background, var(--vscode-editor-background))
+        );
+        border: 1px solid var(--vscode-inputValidation-warningBorder, #cca700);
+        border-radius: 3px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.36);
+        padding: 12px;
+        z-index: 20;
+        display: none;
+        font-family: var(--vscode-font-family);
+        color: var(--vscode-editorWarning-foreground, #cca700);
+      }
+
+      .warning-popup.visible {
+        display: block;
+      }
+
+      .warning-popup h3 {
+        margin: 0 0 8px 0;
+        font-size: 14px;
+      }
+
+      .warning-popup ol {
+        margin: 4px 0 12px 0;
+        padding-left: 20px;
+      }
+
+      .warning-popup li {
+        font-size: 12px;
+        word-break: break-all;
+        color: var(--vscode-foreground);
+      }
+
+      .setting-row {
+        position: relative;
+        padding: 8px 10px 12px;
+        border-radius: 3px;
+        margin-bottom: 2px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .setting-row:hover {
+        background-color: var(
+          --vscode-settings-rowHoverBackground,
+          var(--vscode-list-hoverBackground)
+        );
+      }
+
+      .setting-row:focus-within {
+        background-color: var(
+          --vscode-settings-focusedRowBackground,
+          var(--vscode-list-hoverBackground)
+        );
+        outline: 1px solid
+          var(--vscode-settings-focusedRowBorder, var(--vscode-focusBorder));
+        outline-offset: -1px;
+      }
+
+      .setting-row.is-configured {
+        border-left: 2px solid
+          var(
+            --vscode-settings-modifiedItemIndicator,
+            var(--vscode-focusBorder)
+          );
+        padding-left: 8px;
+      }
+
+      .setting-row > * {
+        max-width: 100%;
+      }
+
+      .setting-label {
+        font-weight: 600;
+        color: var(
+          --vscode-settings-headerForeground,
+          var(--vscode-foreground)
+        );
+        cursor: default;
+        user-select: text;
+      }
+
+      .setting-description {
+        color: var(--vscode-descriptionForeground);
+        font-size: 12px;
+        line-height: 1.4;
+        margin-top: 2px;
+        opacity: 0.9;
+        user-select: text;
+      }
+
+      .setting-control-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-top: 6px;
+      }
+
+      .setting-control-row .native-number {
+        width: 100%;
+        max-width: 80px;
+        background: var(
+          --vscode-settings-numberInputBackground,
+          var(--vscode-input-background)
+        );
+        color: var(
+          --vscode-settings-numberInputForeground,
+          var(--vscode-input-foreground)
+        );
+        border: 1px solid
+          var(
+            --vscode-settings-numberInputBorder,
+            var(--vscode-input-border, transparent)
+          );
+        border-radius: 2px;
+        padding: 4px 6px;
+        font-family: var(--vscode-font-family);
+        font-size: var(--vscode-font-size);
+        outline: none;
+      }
+
+      .setting-control-row .native-number:focus {
+        border-color: var(--vscode-focusBorder);
+      }
+
+      .native-slider {
+        flex-grow: 1;
+        height: 4px;
+        background: var(--vscode-input-background);
+        border: 1px solid var(--vscode-input-border, transparent);
+        outline: none;
+        border-radius: 2px;
+        opacity: 1 !important;
+      }
+
+      .native-slider::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: var(--vscode-button-background);
+        cursor: pointer;
+      }
+
+      .native-slider::-moz-range-thumb {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: var(--vscode-button-background);
+        cursor: pointer;
+      }
+
+      .native-slider:focus {
+        border-color: var(--vscode-focusBorder);
+      }
+
+      .settings-reset-btn {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        width: 100%;
+        padding: 4px 0;
+        border: none;
+        background: transparent;
+        color: var(--vscode-foreground);
+        cursor: pointer;
+        font-family: var(--vscode-font-family);
+        font-size: var(--vscode-font-size);
+        border-radius: 3px;
+      }
+
+      .settings-reset-btn:hover {
+        background: var(--vscode-list-hoverBackground);
+      }
+
+      .settings-reset-btn .codicon {
+        font-size: 14px;
+        width: 14px;
+        height: 14px;
+      }
+
+      .settings-reset-row {
+        padding-bottom: 12px;
+        margin-bottom: 8px;
+        border-bottom: 1px solid
+          var(
+            --vscode-menu-separatorBackground,
+            var(--vscode-settings-headerBorder, transparent)
+          );
+      }
     </style>
   </head>
   <body>
     <canvas id="pixi-canvas"></canvas>
+
+    <div id="pixi-toolbar" class="toolbar">
+      <div class="toolbar-left">
+        <button
+          id="btn-warning"
+          class="toolbar-btn"
+          title="Validation warnings"
+          style="display: none"
+        >
+          <span class="codicon codicon-warning"></span>
+        </button>
+      </div>
+      <div class="toolbar-right">
+        <button id="btn-center" class="toolbar-btn" title="Center view">
+          <span class="codicon codicon-screen-full"></span>
+        </button>
+        <button id="btn-settings" class="toolbar-btn" title="Settings">
+          <span class="codicon codicon-gear"></span>
+        </button>
+      </div>
+    </div>
+
+    <div id="settings-popup" class="settings-popup"></div>
+    <div id="warning-popup" class="warning-popup"></div>
+
+    <script type="module" src="${toolkitUri}"></script>
+
     <script type="importmap">
       {
         "imports": {

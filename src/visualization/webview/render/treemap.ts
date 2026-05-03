@@ -1,6 +1,5 @@
 import { Application, Container, Graphics } from "pixi.js";
 import { Viewport } from "pixi-viewport";
-import { TreemapLayout } from "../../layout/treemapLayout.js";
 import { LayoutNode, LayoutRect } from "../../interfaces/layout.js";
 import {
   TreemapLabelRenderer,
@@ -16,15 +15,17 @@ import type {
   Box,
   BoxRenderProps,
   LayoutComplexity,
+  LayoutDiagnostics,
   PixiElement,
   RenderedBox,
-  ValidatedLayoutResult,
   VirtualLayoutSettings,
-  VsCodeApi,
 } from "../pixiView.js";
+import type { VsCodeApi } from "../vscodeApi.js";
 import { clamp, toFiniteInteger, shallowEqualObject } from "../utils.js";
+import { BOX_TYPES, buildLayoutTree } from "./treemapTreeBuilder.js";
+import { TreemapLayoutValidator } from "./treemapLayoutValidator.js";
 
-const WORLD_PADDING_PX = 120;
+const WORLD_PADDING_PERC = 0.1;
 const TREEMAP_WIDTH_PX = 1000;
 const TREEMAP_HEIGHT_PX = 1500;
 const TREEMAP_INNER_PADDING_PX = 50;
@@ -48,19 +49,9 @@ const VIEWPORT_WHEEL_SMOOTH = 5;
 const VIEWPORT_DECELERATE_FRICTION = 0.9;
 const VIEWPORT_DECELERATE_MIN_SPEED = 0.02;
 
-const MAX_LAYOUT_VALIDATION_ATTEMPTS = 60;
-const LAYOUT_RETRY_SIZE_MULTIPLIER = 1.35;
 const LAYOUT_NODE_MIN_PADDING_PERC = 0.02;
 const LAYOUT_DEPTH_RISK_BUFFER_PX = 50;
 const LAYOUT_NODE_AREA_FACTOR = 1.5;
-const LAYOUT_NODE_MIN_SIDE_PARENT_RATIO = 0.1;
-const LAYOUT_NODE_MAX_NORMALIZED_WEIGHT = 1;
-
-const BOX_TYPES = {
-  DIR: "directory",
-  FILE: "file",
-  FUNC: "function",
-} as const;
 
 const BOXES_RENDER_PROPS: BoxRenderProps = {
   [BOX_TYPES.DIR]: {
@@ -71,9 +62,9 @@ const BOXES_RENDER_PROPS: BoxRenderProps = {
     strokeWidth: 1,
   },
   [BOX_TYPES.FILE]: {
-    backgroundColor: 0x80f444,
+    backgroundColor: 0xeedd11,
     backgroundAlpha: 0.12,
-    strokeColor: 0x80f444,
+    strokeColor: 0xeedd11,
     strokeAlpha: 0.9,
     strokeWidth: 1,
   },
@@ -106,8 +97,8 @@ export class TreemapRenderManager {
   private childBoxesByParentId = new Map<string, BoxLabelInput[]>();
   /** Stateful label renderer that owns Text nodes and label fit decisions. */
   private readonly labelRenderer = new TreemapLabelRenderer();
-  /** Shared treemap algorithm instance reused across attempts/renders. */
-  private readonly treemapLayout = new TreemapLayout();
+  /** Layout validator with retry logic and weight boosting. */
+  private readonly layoutValidator = new TreemapLayoutValidator();
   /** Latest host-provided rendering settings. */
   private settings: ExtensionConfig = {} as ExtensionConfig;
   /** Guards one flush per animation frame to coalesce bursty updates. */
@@ -116,6 +107,13 @@ export class TreemapRenderManager {
   private settingsFlushTimer: number | undefined;
   /** If true, should fit camera to content bounds. */
   private fitToContent = true;
+  /** Diagnostics from the last layout validation run. */
+  private lastDiagnostics?: LayoutDiagnostics;
+
+  /** Called after every completed render pass with latest validation diagnostics. */
+  public onRenderComplete?: (
+    diagnostics: LayoutDiagnostics | undefined,
+  ) => void;
 
   constructor(private readonly api: VsCodeApi | undefined) {}
 
@@ -229,6 +227,12 @@ export class TreemapRenderManager {
     this.api?.postMessage({ type: "webviewReady" });
   }
 
+  /** Re-centers and fits the viewport to current content bounds. */
+  public centerView(): void {
+    this.fitViewportToContent();
+    this.applyViewportScaleCompensation();
+  }
+
   /** Debounces resize events and rerenders using latest pending elements. */
   public scheduleResizeViewportUpdate(): void {
     if (this.resizeDebounceTimer !== undefined) {
@@ -250,6 +254,7 @@ export class TreemapRenderManager {
     fitToContent: boolean = true,
   ): Promise<void> {
     if (elements.length === 0) {
+      this.onRenderComplete?.(undefined);
       return;
     }
 
@@ -258,6 +263,7 @@ export class TreemapRenderManager {
 
     const currentRenderVersion = ++this.renderVersion;
     if (!this.scene) {
+      this.onRenderComplete?.(undefined);
       return;
     }
 
@@ -265,9 +271,15 @@ export class TreemapRenderManager {
     this.renderedBoxes = [];
     this.labelRenderer.resetState();
 
-    const root = this.buildLayoutTree(elements);
+    const root = buildLayoutTree(
+      elements,
+      this.settings.setFileLinesAsWeight,
+      this.settings.normalizeTreemapWeight,
+      this.settings.normalizedTreemapMaxWeight,
+    );
     if (!root) {
       this.updateViewportSize();
+      this.onRenderComplete?.(undefined);
       return;
     }
 
@@ -282,7 +294,17 @@ export class TreemapRenderManager {
       screenHeight,
     );
 
-    const validation = this.computeValidatedLayout(root, computedSettings);
+    const normalizedSettings = normalizeLayoutSettings(computedSettings);
+    const padding =
+      this.settings.treemapOuterPaddingPercent ?? LAYOUT_NODE_MIN_PADDING_PERC;
+    const validation = this.layoutValidator.computeValidatedLayout(
+      root,
+      normalizedSettings,
+      padding,
+      this.settings.sortNodesByDescendingWeight,
+    );
+
+    this.lastDiagnostics = validation.diagnostics;
 
     console.log(
       `Treemap settings validated in ${validation.attempts} attempts.`,
@@ -313,6 +335,7 @@ export class TreemapRenderManager {
     }
 
     if (!this.viewport) {
+      this.onRenderComplete?.(this.lastDiagnostics);
       return;
     }
 
@@ -334,6 +357,8 @@ export class TreemapRenderManager {
       this.fitViewportToContent();
       this.applyViewportScaleCompensation();
     }
+
+    this.onRenderComplete?.(this.lastDiagnostics);
   }
 
   /** Reads current renderer dimensions for world and fit calculations. */
@@ -361,13 +386,14 @@ export class TreemapRenderManager {
     }
 
     const bounds = this.scene.getLocalBounds();
+    const avgSide = (bounds.width + bounds.height) / 2;
     const contentWidth = Math.max(
       1,
-      Math.ceil(bounds.width + WORLD_PADDING_PX * 2),
+      Math.ceil(bounds.width + avgSide * WORLD_PADDING_PERC),
     );
     const contentHeight = Math.max(
       1,
-      Math.ceil(bounds.height + WORLD_PADDING_PX * 2),
+      Math.ceil(bounds.height + avgSide * WORLD_PADDING_PERC),
     );
 
     return {
@@ -406,8 +432,9 @@ export class TreemapRenderManager {
       return;
     }
 
-    const paddedWidth = bounds.width + WORLD_PADDING_PX * 2;
-    const paddedHeight = bounds.height + WORLD_PADDING_PX * 2;
+    const avgSide = (bounds.width + bounds.height) / 2;
+    const paddedWidth = bounds.width + avgSide * WORLD_PADDING_PERC;
+    const paddedHeight = bounds.height + avgSide * WORLD_PADDING_PERC;
     const fitScale = Math.min(
       screenWidth / Math.max(1, paddedWidth),
       screenHeight / Math.max(1, paddedHeight),
@@ -458,182 +485,9 @@ export class TreemapRenderManager {
 
     this.labelRenderer.applyViewportScaleCompensation(this.viewport);
   }
-
-  /** Produces next retry settings by enlarging canvas and relaxing spacing. */
-  private buildRetryLayoutSettings(
-    previous: VirtualLayoutSettings,
-  ): VirtualLayoutSettings {
-    return normalizeLayoutSettings({
-      width: Math.ceil(previous.width * LAYOUT_RETRY_SIZE_MULTIPLIER),
-      height: Math.ceil(previous.height * LAYOUT_RETRY_SIZE_MULTIPLIER),
-      maxDepth: previous.maxDepth,
-      round: previous.round,
-    });
-  }
-
-  /** Provides one capped emergency setting set before giving up retries. */
-  private getFinalFallbackSettings(
-    base: VirtualLayoutSettings,
-  ): VirtualLayoutSettings {
-    return normalizeLayoutSettings({
-      width: Math.max(base.width, LAYOUT_VIRTUAL_MAX_SIDE_PX),
-      height: Math.max(base.height, LAYOUT_VIRTUAL_MAX_SIDE_PX),
-      maxDepth: base.maxDepth,
-      round: false,
-    });
-  }
-
-  /** Runs bounded retries until all directory rects are renderable or capped. */
-  private computeValidatedLayout(
-    root: LayoutNode,
-    baseSettings: VirtualLayoutSettings,
-  ): ValidatedLayoutResult {
-    let currentSettings = normalizeLayoutSettings(baseSettings);
-    let lastResult: LayoutRect[] = [];
-    let lastSettings = currentSettings;
-
-    /** check if layout rects to be rendered are valid */
-    const passesValidation = (layoutRects: LayoutRect[]): boolean => {
-      const collapsedCount = countCollapsedRects(layoutRects);
-      const isLastRectTooSmall = checkLastRectTooSmall(layoutRects);
-
-      return !isLastRectTooSmall && collapsedCount === 0;
-    };
-
-    for (
-      let attempt = 1;
-      attempt <= MAX_LAYOUT_VALIDATION_ATTEMPTS;
-      attempt++
-    ) {
-      const layoutRects = this.treemapLayout.compute(root, {
-        width: currentSettings.width,
-        height: currentSettings.height,
-        maxDepth: currentSettings.maxDepth,
-        topPaddingPerc:
-          this.settings.treemapOuterPaddingPercent ??
-          LAYOUT_NODE_MIN_PADDING_PERC,
-        round: currentSettings.round,
-        includeRoot: true,
-        sortDescending: this.settings.sortNodesByDescendingWeight,
-      });
-
-      if (passesValidation(layoutRects)) {
-        return {
-          layoutRects,
-          settings: currentSettings,
-          attempts: attempt,
-        };
-      }
-
-      lastResult = layoutRects;
-      lastSettings = currentSettings;
-
-      const nextSettings = this.buildRetryLayoutSettings(currentSettings);
-      if (areLayoutSettingsEqual(currentSettings, nextSettings)) {
-        break;
-      }
-
-      currentSettings = nextSettings;
-    }
-
-    const fallback = this.getFinalFallbackSettings(baseSettings);
-    const fallbackRects = this.treemapLayout.compute(root, {
-      width: fallback.width,
-      height: fallback.height,
-      maxDepth: fallback.maxDepth,
-      topPaddingPerc:
-        this.settings.treemapOuterPaddingPercent ??
-        LAYOUT_NODE_MIN_PADDING_PERC,
-      round: fallback.round,
-      includeRoot: true,
-      sortDescending: this.settings.sortNodesByDescendingWeight,
-    });
-
-    if (passesValidation(fallbackRects)) {
-      return {
-        layoutRects: fallbackRects,
-        settings: fallback,
-        attempts: MAX_LAYOUT_VALIDATION_ATTEMPTS + 1,
-      };
-    }
-
-    console.warn(
-      `Treemap layout remains collapsed directories after ${MAX_LAYOUT_VALIDATION_ATTEMPTS} retries.`,
-    );
-
-    return {
-      layoutRects: lastResult,
-      settings: lastSettings,
-      attempts: MAX_LAYOUT_VALIDATION_ATTEMPTS,
-    };
-  }
-
-  /** Builds a hierarchy that the shared treemap layout can consume. */
-  private buildLayoutTree(elements: PixiElement[]): LayoutNode | undefined {
-    const validElements = elements.filter((element) =>
-      [BOX_TYPES.DIR, BOX_TYPES.FILE, BOX_TYPES.FUNC].includes(element.type),
-    );
-
-    if (validElements.length === 0) {
-      return undefined;
-    }
-
-    const nodesById = new Map<string, LayoutNode>();
-    let maxWeight = 1;
-
-    for (const element of validElements) {
-      const rawWeight = Math.max(0, element.lineCount ?? 0);
-
-      const node: LayoutNode = {
-        id: element.id,
-        label: element.label,
-        kind: element.type,
-        weight: this.settings.setFileLinesAsWeight ? rawWeight : 0,
-        parentId: element.parentId,
-        children: [],
-      };
-
-      if (rawWeight > maxWeight) {
-        maxWeight = rawWeight;
-      }
-      nodesById.set(element.id, node);
-    }
-
-    const roots: LayoutNode[] = [];
-
-    for (const node of nodesById.values()) {
-      if (!node) {
-        continue;
-      }
-
-      if (this.settings.normalizeTreemapWeight) {
-        const normalizedWeight = node.weight / maxWeight;
-        node.weight = normalizedWeight * LAYOUT_NODE_MAX_NORMALIZED_WEIGHT;
-      }
-
-      const parent = nodesById.get(node.parentId || "");
-      if (!parent) {
-        roots.push(node);
-        continue;
-      }
-      parent.children.push(node);
-    }
-
-    if (roots.length === 1) {
-      return roots[0];
-    }
-
-    return {
-      id: "__layout_root__",
-      label: "root",
-      kind: BOX_TYPES.DIR,
-      weight: 0,
-      children: roots,
-    };
-  }
 }
 
-/** Maps generic layout rectangles into render boxes. */
+/** Maps generic layout rectangles into actual render boxes. */
 function mapBoxes(rects: LayoutRect[]): Box[] {
   return rects
     .filter((rect) =>
@@ -667,7 +521,7 @@ function computeVirtualLayoutSettings(
       ? screenWidth / screenHeight
       : fallbackAspect;
 
-  const { nodeCount, maxDepth } = measureLayoutComplexity(root);
+  const { nodeCount, maxDepth, weightRatio } = measureLayoutComplexity(root);
   const baseArea = TREEMAP_WIDTH_PX * TREEMAP_HEIGHT_PX;
   const countScale = Math.max(
     1,
@@ -675,7 +529,12 @@ function computeVirtualLayoutSettings(
   );
   const depthScale = Math.max(1, maxDepth / LAYOUT_COMPLEXITY_DEPTH_BASE);
   const complexityScale = Math.max(countScale, depthScale);
-  const targetArea = baseArea * complexityScale;
+
+  // Proactive safety net: extreme weight ratios increase canvas to give rounding more pixels
+  const weightRatioScale =
+    weightRatio > 1000 ? Math.sqrt(weightRatio / 1000) : 1;
+
+  const targetArea = baseArea * complexityScale * weightRatioScale;
 
   let width = Math.sqrt(targetArea * aspect);
   let height = targetArea / Math.max(1, width);
@@ -778,54 +637,25 @@ function normalizeLayoutSettings(
   };
 }
 
-/** Checks whether retry settings changed enough to justify another compute pass. */
-function areLayoutSettingsEqual(
-  a: VirtualLayoutSettings,
-  b: VirtualLayoutSettings,
-): boolean {
-  return (
-    a.width === b.width &&
-    a.height === b.height &&
-    a.maxDepth === b.maxDepth &&
-    a.round === b.round
-  );
+/** Extended complexity data including weight distribution for proactive layout tuning. */
+interface LayoutComplexityWithWeights extends LayoutComplexity {
+  minWeight: number;
+  maxWeight: number;
+  medianWeight: number;
+  weightRatio: number;
 }
 
-/** Counts nodes that cannot render because their size collapsed to zero. */
-function countCollapsedRects(rects: LayoutRect[]): number {
-  let collapsedCount = 0;
-
-  for (const rect of rects) {
-    if (rect.width <= 0 || rect.height <= 0) {
-      collapsedCount += 1;
-    }
-  }
-
-  return collapsedCount;
-}
-
-/** Measures if the last node is too small compared to the first node. */
-function checkLastRectTooSmall(rects: LayoutRect[]): boolean {
-  if (rects.length < 2) {
-    return false;
-  }
-  const lastRect = rects[rects.length - 1];
-  const prevRect = rects[rects.length - 2];
-  const lastRectAvgSide = Math.sqrt(lastRect.width * lastRect.height);
-  const prevRectAvgSide = Math.sqrt(prevRect.width * prevRect.height);
-  const sizeRatio = Math.max(1, lastRectAvgSide) / Math.max(1, prevRectAvgSide);
-
-  return sizeRatio < LAYOUT_NODE_MIN_SIDE_PARENT_RATIO;
-}
-
-/** Measures hierarchy size/depth so layout can adapt for dense trees. */
-function measureLayoutComplexity(root: LayoutNode): LayoutComplexity {
+/** Measures hierarchy size/depth and weight distribution for proactive layout tuning. */
+function measureLayoutComplexity(
+  root: LayoutNode,
+): LayoutComplexityWithWeights {
   const stack: Array<{ node: LayoutNode; depth: number }> = [
     { node: root, depth: 0 },
   ];
 
   let nodeCount = 0;
   let maxDepth = 0;
+  const weights: number[] = [];
 
   while (stack.length > 0) {
     const current = stack.pop();
@@ -835,12 +665,37 @@ function measureLayoutComplexity(root: LayoutNode): LayoutComplexity {
 
     nodeCount += 1;
     maxDepth = Math.max(maxDepth, current.depth);
+    weights.push(current.node.weight);
 
     for (const child of current.node.children) {
       stack.push({ node: child, depth: current.depth + 1 });
     }
   }
 
-  console.log("Layout complexity:", { nodeCount, maxDepth });
-  return { nodeCount, maxDepth };
+  const sortedWeights = weights.filter((w) => w > 0).sort((a, b) => a - b);
+  const minWeight = sortedWeights.length > 0 ? sortedWeights[0] : 0;
+  const maxWeight =
+    sortedWeights.length > 0 ? sortedWeights[sortedWeights.length - 1] : 0;
+  const medianWeight =
+    sortedWeights.length > 0
+      ? sortedWeights[Math.floor(sortedWeights.length / 2)]
+      : 0;
+  const weightRatio = maxWeight > 0 ? maxWeight / Math.max(1, minWeight) : 1;
+
+  console.log("Layout complexity:", {
+    nodeCount,
+    maxDepth,
+    minWeight,
+    maxWeight,
+    medianWeight,
+    weightRatio,
+  });
+  return {
+    nodeCount,
+    maxDepth,
+    minWeight,
+    maxWeight,
+    medianWeight,
+    weightRatio,
+  };
 }

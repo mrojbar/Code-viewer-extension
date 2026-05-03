@@ -22,6 +22,8 @@ export class PixiWebviewHtmlBuilder {
       resources.d3HierarchyImportUrl,
     );
     htmlContent = htmlContent.replace("${scriptUri}", resources.scriptUri);
+    htmlContent = htmlContent.replace("${toolkitUri}", resources.toolkitUri);
+    htmlContent = htmlContent.replace("${codiconUri}", resources.codiconUri);
 
     return htmlContent;
   }

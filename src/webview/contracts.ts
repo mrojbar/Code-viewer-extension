@@ -15,6 +15,8 @@ export interface PixiWebviewResourcePaths {
   pixiViewportModulePath: string[];
   d3HierarchyModulePath: string[];
   runtimeScriptPath: string[];
+  toolkitPath: string[];
+  codiconPath: string[];
 }
 
 /** Runtime-ready resource URIs consumed by graphTemplate.html placeholders. */
@@ -23,6 +25,8 @@ export interface PixiWebviewResourceUris {
   pixiViewportImportUrl: string;
   d3HierarchyImportUrl: string;
   scriptUri: string;
+  toolkitUri: string;
+  codiconUri: string;
 }
 
 /** Lifecycle contract used by host adapters (sidebar, panel, etc.). */

@@ -1,4 +1,9 @@
-import { hierarchy, treemap, HierarchyRectangularNode } from "d3-hierarchy";
+import {
+  hierarchy,
+  treemap,
+  treemapResquarify,
+  HierarchyRectangularNode,
+} from "d3-hierarchy";
 import {
   LayoutAlgorithm,
   LayoutNode,
@@ -38,6 +43,7 @@ export class TreemapLayout implements LayoutAlgorithm<TreemapLayoutConfig> {
     }
 
     let treemapLayout = treemap<LayoutNode>()
+      .tile(treemapResquarify.ratio(1))
       .size([width, height])
       .round(config.round ?? true);
 
@@ -52,7 +58,13 @@ export class TreemapLayout implements LayoutAlgorithm<TreemapLayoutConfig> {
     const paddingsByDepth: Record<number, number> = {};
     for (let d = 0; d <= maxDepth; d++) {
       paddingsByDepth[d] = dynamicPadding(
-        { depth: d } as HierarchyRectangularNode<LayoutNode>,
+        {
+          x0: 0,
+          y0: 0,
+          x1: width,
+          y1: height,
+          depth: d,
+        } as HierarchyRectangularNode<LayoutNode>,
         config.topPaddingPerc,
         MIN_PADDIN_PERC,
         maxDepth,

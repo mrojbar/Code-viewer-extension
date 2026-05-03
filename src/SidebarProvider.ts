@@ -4,12 +4,16 @@ import { PixiVisualizer } from "./visualization/PixiVisualizer";
 import { PixiWebviewController } from "./webview/PixiWebviewController";
 import { WebviewHost } from "./webview/contracts";
 import { ExtensionConfig } from "./visualization/interfaces/messages";
+import { ExtensionSettings, SettingsKey } from "./settings";
+import { buildSettingsControlsHtml } from "./SettingsHtmlBuilder";
 
 /** Hosts the sidebar webview and pushes graph payloads into the webview runtime. */
 export class SidebarProvider implements vscode.WebviewViewProvider {
   private readonly _extensionUri: vscode.Uri;
   private readonly _controller: PixiWebviewController;
   private readonly _additionalLocalResourceRoots: readonly vscode.Uri[];
+  private _webview?: vscode.Webview;
+  private _settingsChangeDisposable?: vscode.Disposable;
 
   private constructor(
     extensionUri: vscode.Uri,
@@ -52,6 +56,20 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           "index.js",
         ],
         runtimeScriptPath: ["runtime", "webview", "pixiView.js"],
+        toolkitPath: [
+          "node_modules",
+          "@vscode",
+          "webview-ui-toolkit",
+          "dist",
+          "toolkit.min.js",
+        ],
+        codiconPath: [
+          "node_modules",
+          "@vscode",
+          "codicons",
+          "dist",
+          "codicon.css",
+        ],
       },
     });
 
@@ -64,6 +82,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
   /** Initializes webview options and injects HTML shell content. */
   public resolveWebviewView(webviewView: vscode.WebviewView) {
+    this._webview = webviewView.webview;
+    this._settingsChangeDisposable?.dispose();
+
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: [
@@ -73,13 +94,48 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     };
 
     /** Handles messages received from the webview. */
-    webviewView.webview.onDidReceiveMessage((message: Event) => {
-      if (message.type !== "webviewReady") {
+    webviewView.webview.onDidReceiveMessage((message: any) => {
+      if (message.type === "webviewReady") {
+        this._controller.refresh();
         return;
       }
 
-      this._controller.refresh();
+      if (message.type === "getSettingsHtml") {
+        const settings = ExtensionSettings.getInstance();
+        const html = buildSettingsControlsHtml(settings, { tooltip: true });
+        webviewView.webview.postMessage({ type: "showSettingsPopup", html });
+        return;
+      }
+
+      if (message.command === "resetSettings") {
+        void ExtensionSettings.getInstance()
+          .resetAll()
+          .then(() => {
+            const settings = ExtensionSettings.getInstance();
+            settings.forceRefresh();
+            const html = buildSettingsControlsHtml(settings, { tooltip: true });
+            webviewView.webview.postMessage({ type: "showSettingsPopup", html });
+          });
+        return;
+      }
+
+      if (message.command === "updateSetting") {
+        const settings = ExtensionSettings.getInstance();
+        void settings.update(message.key as SettingsKey, message.value);
+        return;
+      }
     });
+
+    this._settingsChangeDisposable = ExtensionSettings.getInstance().onDidChange(
+      () => {
+        if (!this._webview) {
+          return;
+        }
+        const settings = ExtensionSettings.getInstance();
+        const html = buildSettingsControlsHtml(settings, { tooltip: true });
+        this._webview.postMessage({ type: "updateSettingsPopupHtml", html });
+      },
+    );
 
     this._controller.attachHost(this.createHostAdapter(webviewView.webview));
   }
@@ -101,6 +157,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
   /** Lifecycle cleanup for controller-host association. */
   public dispose(): void {
+    this._settingsChangeDisposable?.dispose();
     this._controller.dispose();
   }
 

@@ -100,6 +100,8 @@ export class PixiWebviewController implements PixiWebviewLifecycle {
         this.resourcePaths.d3HierarchyModulePath,
       ),
       scriptUri: host.resolveResourceUri(this.resourcePaths.runtimeScriptPath),
+      toolkitUri: host.resolveResourceUri(this.resourcePaths.toolkitPath),
+      codiconUri: host.resolveResourceUri(this.resourcePaths.codiconPath),
     };
   }
 }

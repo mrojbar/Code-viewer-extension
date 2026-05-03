@@ -85,6 +85,8 @@ async function main() {
       );
     }
 
+    const description = desc.description ?? null;
+
     entries.push([
       stripPrefix(confPath),
       confPath,
@@ -92,6 +94,7 @@ async function main() {
       def ?? null,
       minimum ?? null,
       maximum ?? null,
+      description,
     ]);
   }
 
@@ -107,12 +110,13 @@ async function main() {
     "  defaultValue: boolean | number | string;",
     "  minimum: number | null;",
     "  maximum: number | null;",
+    "  description: string | null;",
     "};",
     "",
     "export const GENERATED_SETTINGS_SCHEMA = {",
     ...entries.map(
-      ([k, conf, t, d, min, max]) =>
-        `  ${JSON.stringify(k)}: { configurationPath: ${JSON.stringify(conf)}, valueType: ${JSON.stringify(t)}, defaultValue: ${JSON.stringify(d)}, minimum: ${JSON.stringify(min)}, maximum: ${JSON.stringify(max)} },`,
+      ([k, conf, t, d, min, max, desc]) =>
+        `  ${JSON.stringify(k)}: { configurationPath: ${JSON.stringify(conf)}, valueType: ${JSON.stringify(t)}, defaultValue: ${JSON.stringify(d)}, minimum: ${JSON.stringify(min)}, maximum: ${JSON.stringify(max)}, description: ${JSON.stringify(desc)} },`,
     ),
     "} as const satisfies Record<string, GeneratedSetting>;",
     "",

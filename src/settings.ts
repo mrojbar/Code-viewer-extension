@@ -163,6 +163,44 @@ export class ExtensionSettings {
     return { ...this.values };
   }
 
+  /** Forces a re-read of all settings from VS Code configuration into the cache. */
+  public forceRefresh(): void {
+    this.values = this.readAllValues();
+  }
+
+  /** Writes a single setting to VS Code configuration. The cache is updated by the onDidChangeConfiguration listener. */
+  public update<K extends SettingsKey>(
+    key: K,
+    value: SettingsValues[K],
+  ): Thenable<void> {
+    const schema = SETTINGS_SCHEMA[key];
+    return vscode.workspace
+      .getConfiguration()
+      .update(
+        schema.configurationPath,
+        value,
+        vscode.ConfigurationTarget.Global,
+      );
+  }
+
+  /** Resets every setting to its default. The cache is updated by the onDidChangeConfiguration listener. */
+  public resetAll(): Thenable<void> {
+    const updatePromises: Thenable<void>[] = [];
+    for (const key of this.getSchemaKeys()) {
+      const schema = SETTINGS_SCHEMA[key];
+      updatePromises.push(
+        vscode.workspace
+          .getConfiguration()
+          .update(
+            schema.configurationPath,
+            schema.defaultValue,
+            vscode.ConfigurationTarget.Global,
+          ),
+      );
+    }
+    return Promise.all(updatePromises).then(() => undefined);
+  }
+
   private refreshChangedValues(
     event: vscode.ConfigurationChangeEvent,
   ): ReadonlySet<SettingsKey> {

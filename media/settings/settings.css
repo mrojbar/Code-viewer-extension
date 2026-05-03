@@ -1,42 +1,93 @@
 body {
-  padding: 10px;
+  padding: 8px 12px;
   font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
   color: var(--vscode-foreground);
 }
 
 .setting-row {
-  margin-bottom: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 4px;
-  border-radius: 2px;
-}
-
-.setting-row > * {
-  max-width: min(85%, 400px);
-  padding-right: 15px;
+  position: relative;
+  padding: 8px 10px 12px;
+  border-radius: 3px;
+  margin-bottom: 2px;
 }
 
 .setting-row:hover {
-  background-color: var(--vscode-list-hoverBackground);
+  background-color: var(
+    --vscode-settings-rowHoverBackground,
+    var(--vscode-list-hoverBackground)
+  );
+}
+
+.setting-row:focus-within {
+  background-color: var(
+    --vscode-settings-focusedRowBackground,
+    var(--vscode-list-hoverBackground)
+  );
+  outline: 1px solid
+    var(--vscode-settings-focusedRowBorder, var(--vscode-focusBorder));
+  outline-offset: -1px;
+}
+
+.setting-row.is-configured {
+  border-left: 2px solid
+    var(--vscode-settings-modifiedItemIndicator, var(--vscode-focusBorder));
+  padding-left: 8px;
+}
+
+.setting-label {
+  font-weight: 600;
+  color: var(--vscode-settings-headerForeground, var(--vscode-foreground));
+  cursor: default;
+  user-select: text;
+}
+
+.setting-description {
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+  line-height: 1.4;
+  margin-top: 2px;
+  opacity: 0.9;
+  user-select: text;
 }
 
 .setting-control-row {
   display: flex;
   align-items: center;
   gap: 12px;
+  margin-top: 6px;
 }
 
-.setting-control-row vscode-text-field {
-  width: 70px;
+.setting-control-row .native-number {
+  width: 100%;
+  max-width: 80px;
+  background: var(
+    --vscode-settings-numberInputBackground,
+    var(--vscode-input-background)
+  );
+  color: var(
+    --vscode-settings-numberInputForeground,
+    var(--vscode-input-foreground)
+  );
+  border: 1px solid
+    var(
+      --vscode-settings-numberInputBorder,
+      var(--vscode-input-border, transparent)
+    );
+  border-radius: 2px;
+  padding: 4px 6px;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  outline: none;
 }
 
-/* Custom styling for native slider */
+.setting-control-row .native-number:focus {
+  border-color: var(--vscode-focusBorder);
+}
+
 .native-slider {
   flex-grow: 1;
   height: 4px;
-
   background: var(--vscode-input-background);
   border: 1px solid var(--vscode-input-border, transparent);
   outline: none;
@@ -60,4 +111,56 @@ body {
   border-radius: 50%;
   background: var(--vscode-button-background);
   cursor: pointer;
+}
+
+.native-slider:focus {
+  border-color: var(--vscode-focusBorder);
+}
+
+vscode-checkbox {
+  width: 100%;
+}
+
+vscode-text-field {
+  width: 100%;
+  margin-top: 6px;
+}
+
+.settings-reset-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 0;
+  border: none;
+  background: transparent;
+  color: var(--vscode-foreground);
+  cursor: pointer;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  border-radius: 3px;
+}
+
+.settings-reset-btn:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.settings-reset-btn .codicon {
+  font-size: 14px;
+  width: 14px;
+  height: 14px;
+}
+
+.settings-reset-row {
+  padding-bottom: 12px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid
+    var(
+      --vscode-menu-separatorBackground,
+      var(--vscode-settings-headerBorder, transparent)
+    );
+}
+
+.setting-row:first-child {
+  margin-bottom: 0;
 }

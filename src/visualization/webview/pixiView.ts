@@ -8,6 +8,8 @@ import {
   UpdateGraphMessage,
   UpdateSettingsMessage,
 } from "../interfaces/messages.js";
+import { vscodeApi } from "./vscodeApi.js";
+import { initSettingsControls } from "./settingsControls.js";
 /** Flat element payload consumed by the webview renderer. */
 export interface PixiElement {
   id: string;
@@ -45,13 +47,6 @@ export type BoxRenderProps = Record<
   }
 >;
 
-/** Minimal VS Code webview API surface used by this runtime. */
-export interface VsCodeApi {
-  postMessage(message: unknown): void;
-}
-
-declare const acquireVsCodeApi: (() => VsCodeApi) | undefined;
-
 /** Runtime drawable box object paired with Pixi graphics instance. */
 export interface RenderedBox {
   graphics: Graphics;
@@ -72,11 +67,22 @@ export interface VirtualLayoutSettings {
   round: boolean;
 }
 
+/** Layout validation diagnostics surfaced to the UI. */
+export interface LayoutDiagnostics {
+  totalNodes: number;
+  collapsedCount: number;
+  extremeCount: number;
+  avgArea: number;
+  collapsedSamples: Array<{ path: string; w: number; h: number }>;
+  extremeSamples: Array<{ path: string; w: number; h: number }>;
+}
+
 /** Result object for bounded layout validation/retry workflow. */
 export interface ValidatedLayoutResult {
   layoutRects: LayoutRect[];
   settings: VirtualLayoutSettings;
   attempts: number;
+  diagnostics?: LayoutDiagnostics;
 }
 
 declare global {
@@ -89,13 +95,104 @@ declare global {
 
 const RESIZE_DEBOUNCE_MS = 250;
 
-const vscodeApi =
-  typeof acquireVsCodeApi === "function" ? acquireVsCodeApi() : undefined;
 const manager = new TreemapRenderManager(vscodeApi);
 /** Debounce handle for resize-triggered layout rerenders. */
 let resizeDebounceTimer: number | undefined;
 
 manager.bootstrap();
+
+const centerBtn = document.getElementById("btn-center");
+const settingsBtn = document.getElementById("btn-settings");
+const settingsPopup = document.getElementById("settings-popup");
+const warningBtn = document.getElementById(
+  "btn-warning",
+) as HTMLButtonElement | null;
+const warningPopup = document.getElementById("warning-popup");
+
+centerBtn?.addEventListener("click", () => {
+  manager.centerView();
+});
+
+// click handler for settings button in the toolbar
+settingsBtn?.addEventListener("click", () => {
+  if (settingsPopup?.classList.contains("visible")) {
+    settingsPopup.classList.remove("visible");
+    return;
+  }
+  vscodeApi?.postMessage({ type: "getSettingsHtml" });
+});
+
+warningBtn?.addEventListener("click", () => {
+  warningPopup?.classList.toggle("visible");
+});
+
+// Global click handler to close popups when clicking outside of them
+document.addEventListener("click", (e) => {
+  if (
+    settingsPopup?.classList.contains("visible") &&
+    !settingsPopup.contains(e.target as Node) &&
+    !settingsBtn?.contains(e.target as Node)
+  ) {
+    settingsPopup.classList.remove("visible");
+  }
+  if (
+    warningPopup?.classList.contains("visible") &&
+    !warningPopup.contains(e.target as Node) &&
+    !warningBtn?.contains(e.target as Node)
+  ) {
+    warningPopup.classList.remove("visible");
+  }
+});
+
+function escapeHtml(text: string): string {
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// Warning diagnostics popup update
+function updateWarningPopup(diagnostics: LayoutDiagnostics | undefined): void {
+  if (!warningBtn || !warningPopup) {
+    return;
+  }
+
+  const hasProblems =
+    diagnostics &&
+    (diagnostics.collapsedCount > 0 || diagnostics.extremeCount > 0);
+
+  if (!hasProblems) {
+    warningBtn.style.display = "none";
+    warningPopup.classList.remove("visible");
+    return;
+  }
+
+  warningBtn.style.display = "flex";
+
+  let html =
+    "<h3>Graph tree could not be validated with the current settings.</h3>";
+
+  if (diagnostics.collapsedCount > 0) {
+    html += `<div><strong>Collapsed nodes: ${diagnostics.collapsedCount}</strong></div><ol>`;
+    for (const sample of diagnostics.collapsedSamples) {
+      html += `<li>${escapeHtml(sample.path)} (${sample.w.toFixed(1)} x ${sample.h.toFixed(1)})</li>`;
+    }
+    html += "</ol>";
+  }
+
+  if (diagnostics.extremeCount > 0) {
+    html += `<div><strong>Extreme aspect ratio nodes: ${diagnostics.extremeCount}</strong></div><ol>`;
+    for (const sample of diagnostics.extremeSamples) {
+      html += `<li>${escapeHtml(sample.path)} (${sample.w.toFixed(1)} x ${sample.h.toFixed(1)})</li>`;
+    }
+    html += "</ol>";
+  }
+
+  warningPopup.innerHTML = html;
+}
+
+manager.onRenderComplete = (diagnostics) => {
+  updateWarningPopup(diagnostics);
+};
 
 /** Guards extension -> webview message payload shape. */
 function isUpdateMessageType(
@@ -118,6 +215,27 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
   }
   if (isUpdateMessageType(event.data, "updateGraph")) {
     manager.handleGraphUpdate(event.data as UpdateGraphMessage);
+    return;
+  }
+
+  const msg = event.data as any;
+  if (msg?.type === "updateSettingsPopupHtml") {
+    if (
+      settingsPopup &&
+      settingsPopup.classList.contains("visible") &&
+      typeof msg.html === "string"
+    ) {
+      settingsPopup.innerHTML = msg.html;
+      initSettingsControls(settingsPopup);
+    }
+    return;
+  }
+  if (msg?.type === "showSettingsPopup") {
+    if (settingsPopup && typeof msg.html === "string") {
+      settingsPopup.innerHTML = msg.html;
+      settingsPopup.classList.add("visible");
+      initSettingsControls(settingsPopup);
+    }
     return;
   }
 });
