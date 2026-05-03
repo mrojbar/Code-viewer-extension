@@ -53,4 +53,5 @@ export interface TreemapLayoutConfig extends LayoutConfig {
   sortDescending?: boolean;
   maxDepth?: number;
   topPaddingPerc?: number;
+  paddingOuterOverrides?: Map<string, number>;
 }

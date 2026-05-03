@@ -1,7 +1,8 @@
 /**
- * Validates D3 treemap layouts with automatic retry and weight boosting.
- * Uses a two-phase approach: exponential bracketing to find ANY solution,
- * then binary search refinement to find the minimum effective boost.
+ * Validates D3 treemap layouts with automatic retry.
+ * Uses an adaptive approach: weight boosting attempts run until validation
+ * succeeds or an attempt worsens results, then falls back to paddingOuter
+ * reduction for problem parents.
  */
 import { TreemapLayout } from "../../layout/treemapLayout.js";
 import { LayoutNode, LayoutRect } from "../../interfaces/layout.js";
@@ -11,30 +12,18 @@ import type {
   VirtualLayoutSettings,
 } from "../pixiView.js";
 
-/** Phase 1 attempts: exponential search for a passing layout. */
-const PHASE1_ATTEMPTS = 8;
-/** Phase 2 attempts: binary search between last-failed and first-passing multiplier. */
-const PHASE2_ATTEMPTS = 3;
+/** Maximum weight-boost attempts before switching to padding reduction. */
+const MAX_WEIGHT_BOOST_ATTEMPTS = 8;
+/** Maximum padding-reduction attempts. */
+const MAX_PADDING_REDUCTION_ATTEMPTS = 4;
 /** Aspect ratio threshold above which a rectangle is considered extreme. */
 const EXTREME_ASPECT_RATIO_THRESHOLD = 50;
 /** Maximum number of collapsed/extreme samples included in diagnostics logs. */
 const DIAGNOSTICS_SAMPLE_LIMIT = 10;
-/** Base multiplier applied on the first retry (doubled each subsequent Phase 1 attempt). */
+/** Base multiplier applied on the first retry (doubled each subsequent attempt). */
 const BOOST_BASE_MULTIPLIER = 0.5;
 /** How much stronger parent boosts are relative to leaf boosts. */
 const PARENT_BOOST_FACTOR = 2;
-
-/** Per-attempt data tracked during bracketing and refinement. */
-interface AttemptRecord {
-  phase: 1 | 2;
-  attempt: number;
-  multiplier: number;
-  problemCount: number;
-  layoutRects: LayoutRect[];
-  settings: VirtualLayoutSettings;
-  problemIds: string[];
-  problemParentIds: string[];
-}
 
 /** Snapshots original weights and builds an ID index for revert/retry logic. */
 function snapshotTree(root: LayoutNode): {
@@ -89,10 +78,12 @@ function findProblemNodes(layoutRects: LayoutRect[]): {
   problemIds: string[];
   problemParentIds: string[];
   problemCount: number;
+  extremeMetric: number;
 } {
   const problemIds: string[] = [];
   const problemParentIds = new Set<string>();
   let problemCount = 0;
+  let extremeMetric = 0;
 
   for (const rect of layoutRects) {
     const isCollapsed = rect.width <= 0 || rect.height <= 0;
@@ -111,12 +102,20 @@ function findProblemNodes(layoutRects: LayoutRect[]): {
         problemParentIds.add(rect.parentId);
       }
     }
+
+    if (isExtreme) {
+      extremeMetric += Math.max(
+        rect.width / rect.height,
+        rect.height / rect.width,
+      );
+    }
   }
 
   return {
     problemIds,
     problemParentIds: Array.from(problemParentIds),
     problemCount,
+    extremeMetric,
   };
 }
 
@@ -239,16 +238,16 @@ function restoreWeights(
   }
 }
 
-/** Runs the treemap layout with validation retries and progressive weight boosting. */
+/** Runs the treemap layout with validation retries and adaptive weight boosting / padding reduction. */
 export class TreemapLayoutValidator {
   private readonly treemapLayout = new TreemapLayout();
 
   /**
-   * Computes a validated layout using a two-phase search:
-   * 1. Exponential bracketing to find ANY passing layout
-   * 2. Binary search refinement to find the minimum effective boost
+   * Computes a validated layout using an adaptive approach:
+   * 1. Iterative weight boosting until validation succeeds or results worsen
+   * 2. Progressive paddingOuter reduction for problem parents (if enabled)
    *
-   * Between each attempt, weights are restored to their original values
+   * Between weight-boost attempts, weights are restored to original values
    * so that multipliers do not accumulate.
    */
   public computeValidatedLayout(
@@ -256,22 +255,32 @@ export class TreemapLayoutValidator {
     layoutSettings: VirtualLayoutSettings,
     topPaddingPerc: number,
     sortDescending: boolean,
+    dynamicTreemapPadding?: boolean,
   ): ValidatedLayoutResult {
     const { originalWeights, nodeById } = snapshotTree(root);
     const originalMedianWeight = computeMedianWeight(originalWeights);
 
     let bestResult: ValidatedLayoutResult | undefined;
-    let bestProblemCount = Infinity;
+    let bestQuality: { problemCount: number; extremeMetric: number } | undefined;
 
     // ------------------------------------------------------------------
-    // Phase 1: Exponential bracketing (find ANY solution)
+    // Weight-boost phase
     // ------------------------------------------------------------------
     let previousProblemIds: string[] = [];
     let previousProblemParentIds: string[] = [];
-    let firstPassingRecord: AttemptRecord | undefined;
-    let lastFailedRecord: AttemptRecord | undefined;
+    let previousAttemptQuality:
+      | { problemCount: number; extremeMetric: number }
+      | undefined;
+    let bestWeightBoostAttempt: {
+      attempt: number;
+      multiplier: number;
+      boostProblemIds: string[];
+      boostProblemParentIds: string[];
+      resultProblemParentIds: string[];
+      quality: { problemCount: number; extremeMetric: number };
+    } | undefined;
 
-    for (let attempt = 0; attempt < PHASE1_ATTEMPTS; attempt++) {
+    for (let attempt = 0; attempt < MAX_WEIGHT_BOOST_ATTEMPTS; attempt++) {
       restoreWeights(root, originalWeights);
 
       const useRounding = attempt === 0 && layoutSettings.round;
@@ -300,133 +309,176 @@ export class TreemapLayoutValidator {
         sortDescending,
       });
 
-      const { problemIds, problemParentIds, problemCount } =
+      const { problemIds, problemParentIds, problemCount, extremeMetric } =
         findProblemNodes(layoutRects);
       const settings = { ...layoutSettings, round: useRounding };
+      const quality = { problemCount, extremeMetric };
 
-      // Track global best (fewest problems)
-      if (problemCount < bestProblemCount) {
-        bestProblemCount = problemCount;
+      console.log(
+        `Weight-boost attempt ${attempt + 1}/${MAX_WEIGHT_BOOST_ATTEMPTS}: ${problemCount} problems, extremeMetric=${extremeMetric.toFixed(2)} (multiplier: ${multiplier})`,
+        buildDiagnostics(layoutRects),
+      );
+
+      // Track best result
+      if (
+        !bestQuality ||
+        quality.problemCount < bestQuality.problemCount ||
+        (quality.problemCount === bestQuality.problemCount &&
+          quality.extremeMetric < bestQuality.extremeMetric)
+      ) {
+        bestQuality = quality;
         bestResult = {
           layoutRects: [...layoutRects],
           settings,
           attempts: attempt + 1,
           diagnostics: buildDiagnostics(layoutRects) as LayoutDiagnostics,
         };
+        bestWeightBoostAttempt = {
+          attempt: attempt + 1,
+          multiplier,
+          boostProblemIds: [...previousProblemIds],
+          boostProblemParentIds: [...previousProblemParentIds],
+          resultProblemParentIds: problemParentIds,
+          quality,
+        };
       }
 
-      const record: AttemptRecord = {
-        phase: 1,
-        attempt: attempt + 1,
-        multiplier,
-        problemCount,
-        layoutRects: [...layoutRects],
-        settings,
-        problemIds,
-        problemParentIds,
-      };
-
-      console.log(
-        `Phase 1 attempt ${attempt + 1}/${PHASE1_ATTEMPTS}: ${problemCount} problems (multiplier: ${multiplier})`,
-        buildDiagnostics(layoutRects),
-      );
-
       if (problemCount === 0) {
-        firstPassingRecord = record;
+        console.log(
+          `Solution: clean layout after ${attempt + 1} weight-boost attempts`,
+          buildDiagnostics(layoutRects),
+        );
+        restoreWeights(root, originalWeights);
+        return bestResult!;
+      }
+
+      // Stop weight boosting if results worsened vs previous attempt
+      if (
+        previousAttemptQuality &&
+        (quality.problemCount > previousAttemptQuality.problemCount ||
+          (quality.problemCount === previousAttemptQuality.problemCount &&
+            quality.extremeMetric > previousAttemptQuality.extremeMetric))
+      ) {
+        console.log(
+          `Weight-boost attempt ${attempt + 1} is worse than previous; switching to padding reduction.`,
+        );
         break;
       }
 
-      lastFailedRecord = record;
       previousProblemIds = problemIds;
       previousProblemParentIds = problemParentIds;
+      previousAttemptQuality = quality;
     }
 
-    // No passing result in Phase 1 — return the best we found
-    if (!firstPassingRecord) {
-      console.warn(
-        `No clean layout found in Phase 1. Best result had ${bestProblemCount} problems.`,
-      );
+    // ------------------------------------------------------------------
+    // Padding-reduction phase
+    // ------------------------------------------------------------------
+    if (
+      dynamicTreemapPadding &&
+      bestWeightBoostAttempt &&
+      bestWeightBoostAttempt.quality.problemCount > 0
+    ) {
+      // Restore to best weight-boost state
       restoreWeights(root, originalWeights);
-      return (
-        bestResult ?? {
-          layoutRects: [],
-          settings: layoutSettings,
-          attempts: PHASE1_ATTEMPTS,
-          diagnostics: buildDiagnostics([]) as LayoutDiagnostics,
+      if (bestWeightBoostAttempt.boostProblemIds.length > 0) {
+        applyWeightBoost(
+          root,
+          bestWeightBoostAttempt.boostProblemIds,
+          bestWeightBoostAttempt.boostProblemParentIds,
+          originalWeights,
+          nodeById,
+          originalMedianWeight,
+          bestWeightBoostAttempt.multiplier,
+        );
+      }
+
+      const paddingOuterOverrides = new Map<string, number>();
+      let previousPaddingQuality:
+        | { problemCount: number; extremeMetric: number }
+        | undefined;
+      let paddingProblemParentIds =
+        bestWeightBoostAttempt.resultProblemParentIds;
+
+      for (
+        let paddingAttempt = 0;
+        paddingAttempt < MAX_PADDING_REDUCTION_ATTEMPTS;
+        paddingAttempt++
+      ) {
+        for (const parentId of paddingProblemParentIds) {
+          const currentFactor = paddingOuterOverrides.get(parentId) ?? 1;
+          paddingOuterOverrides.set(parentId, currentFactor / 2);
         }
-      );
-    }
 
-    // Baseline already passes — no refinement needed
-    if (!lastFailedRecord) {
-      console.log(
-        `Solution: baseline layout valid, ${bestResult!.layoutRects.length} nodes, ${bestResult!.attempts} attempts`,
-        buildDiagnostics(bestResult!.layoutRects),
-      );
-      restoreWeights(root, originalWeights);
-      return bestResult!;
-    }
+        const layoutRects = this.treemapLayout.compute(root, {
+          width: layoutSettings.width,
+          height: layoutSettings.height,
+          maxDepth: layoutSettings.maxDepth,
+          topPaddingPerc,
+          round: false,
+          includeRoot: true,
+          sortDescending,
+          paddingOuterOverrides,
+        });
 
-    // ------------------------------------------------------------------
-    // Phase 2: Binary search refinement (find minimum effective boost)
-    // ------------------------------------------------------------------
-    let lowMultiplier = lastFailedRecord.multiplier;
-    let highMultiplier = firstPassingRecord.multiplier;
-    let lowProblemIds = lastFailedRecord.problemIds;
-    let lowProblemParentIds = lastFailedRecord.problemParentIds;
+        const { problemParentIds, problemCount, extremeMetric } =
+          findProblemNodes(layoutRects);
+        const settings = { ...layoutSettings, round: false };
+        const quality = { problemCount, extremeMetric };
 
-    for (let phase2Attempt = 0; phase2Attempt < PHASE2_ATTEMPTS; phase2Attempt++) {
-      const midpoint = (lowMultiplier + highMultiplier) / 2;
+        console.log(
+          `Padding-reduction attempt ${paddingAttempt + 1}/${MAX_PADDING_REDUCTION_ATTEMPTS}: ${problemCount} problems, extremeMetric=${extremeMetric.toFixed(2)}`,
+          buildDiagnostics(layoutRects),
+        );
 
-      restoreWeights(root, originalWeights);
-      applyWeightBoost(
-        root,
-        lowProblemIds,
-        lowProblemParentIds,
-        originalWeights,
-        nodeById,
-        originalMedianWeight,
-        midpoint,
-      );
+        // Update best overall
+        if (
+          !bestQuality ||
+          quality.problemCount < bestQuality.problemCount ||
+          (quality.problemCount === bestQuality.problemCount &&
+            quality.extremeMetric < bestQuality.extremeMetric)
+        ) {
+          bestQuality = quality;
+          bestResult = {
+            layoutRects: [...layoutRects],
+            settings,
+            attempts: bestWeightBoostAttempt.attempt + paddingAttempt + 1,
+            diagnostics: buildDiagnostics(layoutRects) as LayoutDiagnostics,
+          };
+        }
 
-      const layoutRects = this.treemapLayout.compute(root, {
-        width: layoutSettings.width,
-        height: layoutSettings.height,
-        maxDepth: layoutSettings.maxDepth,
-        topPaddingPerc,
-        round: false,
-        includeRoot: true,
-        sortDescending,
-      });
+        if (problemCount === 0) {
+          console.log(
+            `Solution: clean layout after weight-boost + ${paddingAttempt + 1} padding-reduction attempts`,
+            buildDiagnostics(layoutRects),
+          );
+          restoreWeights(root, originalWeights);
+          return bestResult!;
+        }
 
-      const { problemIds, problemParentIds, problemCount } =
-        findProblemNodes(layoutRects);
-      const settings = { ...layoutSettings, round: false };
+        // Stop padding if this attempt is worse than the previous padding attempt
+        if (
+          paddingAttempt > 0 &&
+          previousPaddingQuality &&
+          (quality.problemCount > previousPaddingQuality.problemCount ||
+            (quality.problemCount === previousPaddingQuality.problemCount &&
+              quality.extremeMetric > previousPaddingQuality.extremeMetric))
+        ) {
+          console.log(
+            `Padding-reduction attempt ${paddingAttempt + 1} is worse than previous; stopping.`,
+          );
+          break;
+        }
 
-      console.log(
-        `Phase 2 attempt ${phase2Attempt + 1}/${PHASE2_ATTEMPTS}: ${problemCount} problems (multiplier: ${midpoint.toFixed(2)})`,
-        buildDiagnostics(layoutRects),
-      );
-
-      if (problemCount === 0) {
-        highMultiplier = midpoint;
-        bestResult = {
-          layoutRects: [...layoutRects],
-          settings,
-          attempts: PHASE1_ATTEMPTS + phase2Attempt + 1,
-          diagnostics: buildDiagnostics(layoutRects) as LayoutDiagnostics,
-        };
-        bestProblemCount = 0;
-      } else {
-        lowMultiplier = midpoint;
-        lowProblemIds = problemIds;
-        lowProblemParentIds = problemParentIds;
+        previousPaddingQuality = quality;
+        paddingProblemParentIds = problemParentIds;
       }
     }
 
-    const solutionMultiplier = (lowMultiplier + highMultiplier) / 2;
+    const multiplierStr = bestWeightBoostAttempt
+      ? `, multiplier: ${bestWeightBoostAttempt.multiplier}`
+      : "";
     console.log(
-      `Solution: ${bestProblemCount === 0 ? "clean" : "best-effort"} layout with multiplier ~${solutionMultiplier.toFixed(2)}, ${bestResult!.layoutRects.length} nodes, ${bestResult!.attempts} total attempts`,
+      `Solution: ${bestQuality!.problemCount === 0 ? "clean" : "best-effort"} layout${multiplierStr}, ${bestResult!.layoutRects.length} nodes, ${bestResult!.attempts} total attempts`,
       buildDiagnostics(bestResult!.layoutRects),
     );
     restoreWeights(root, originalWeights);

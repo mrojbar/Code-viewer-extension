@@ -27,10 +27,26 @@ export class TreemapLayout implements LayoutAlgorithm<TreemapLayoutConfig> {
     config.topPaddingPerc = config.topPaddingPerc ?? MIN_PADDIN_PERC;
     const maxDepth = config.maxDepth ?? 0;
 
+    const overrides = config.paddingOuterOverrides;
     const pInner = (node: HierarchyRectangularNode<LayoutNode>) =>
       dynamicPadding(node, config.topPaddingPerc, MIN_PADDIN_PERC, maxDepth);
-    const pOuter = (node: HierarchyRectangularNode<LayoutNode>) =>
-      dynamicPadding(node, config.topPaddingPerc, MIN_PADDIN_PERC, maxDepth);
+    const pOuter = (node: HierarchyRectangularNode<LayoutNode>) => {
+      const base = dynamicPadding(
+        node,
+        config.topPaddingPerc,
+        MIN_PADDIN_PERC,
+        maxDepth,
+      );
+      const factor = overrides?.get(node.data.id);
+      if (factor === undefined) {
+        return base;
+      }
+      const nodeW = node.x1 - node.x0;
+      const nodeH = node.y1 - node.y0;
+      const avgSide = Math.sqrt(nodeW * nodeH);
+      const minPadding = avgSide * MIN_PADDIN_PERC;
+      return Math.max(minPadding, base * factor);
+    };
     const startTime = performance.now();
 
     const rootHierarchy = hierarchy<LayoutNode>(
@@ -43,7 +59,7 @@ export class TreemapLayout implements LayoutAlgorithm<TreemapLayoutConfig> {
     }
 
     let treemapLayout = treemap<LayoutNode>()
-      .tile(treemapResquarify.ratio(1))
+      .tile(treemapResquarify)
       .size([width, height])
       .round(config.round ?? true);
 

@@ -26,8 +26,8 @@ import { BOX_TYPES, buildLayoutTree } from "./treemapTreeBuilder.js";
 import { TreemapLayoutValidator } from "./treemapLayoutValidator.js";
 
 const WORLD_PADDING_PERC = 0.1;
-const TREEMAP_WIDTH_PX = 1000;
-const TREEMAP_HEIGHT_PX = 1500;
+const TREEMAP_WIDTH_PX = 2000;
+const TREEMAP_HEIGHT_PX = 3000;
 const TREEMAP_INNER_PADDING_PX = 50;
 const TREEMAP_OUTER_PADDING_PX = 50;
 const RESIZE_DEBOUNCE_MS = 250;
@@ -296,12 +296,13 @@ export class TreemapRenderManager {
 
     const normalizedSettings = normalizeLayoutSettings(computedSettings);
     const padding =
-      this.settings.treemapOuterPaddingPercent ?? LAYOUT_NODE_MIN_PADDING_PERC;
+      this.settings.treemapPaddingPercent ?? LAYOUT_NODE_MIN_PADDING_PERC;
     const validation = this.layoutValidator.computeValidatedLayout(
       root,
       normalizedSettings,
       padding,
       this.settings.sortNodesByDescendingWeight,
+      this.settings.dynamicTreemapPadding,
     );
 
     this.lastDiagnostics = validation.diagnostics;
@@ -532,7 +533,7 @@ function computeVirtualLayoutSettings(
 
   // Proactive safety net: extreme weight ratios increase canvas to give rounding more pixels
   const weightRatioScale =
-    weightRatio > 1000 ? Math.sqrt(weightRatio / 1000) : 1;
+    weightRatio > 1000 ? Math.sqrt(weightRatio / 100) : 1;
 
   const targetArea = baseArea * complexityScale * weightRatioScale;
 
