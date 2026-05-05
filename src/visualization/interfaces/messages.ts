@@ -9,6 +9,7 @@ export type ExtensionConfig = {
   normalizedTreemapMaxWeight: number;
   treemapPaddingPercent: number;
   dynamicTreemapPadding: boolean;
+  capSiblingsWeightRatio: number;
 };
 
 export interface UpdateMessage {

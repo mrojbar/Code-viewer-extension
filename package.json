@@ -87,12 +87,24 @@
           "default": false,
           "description": "Use file lines as file weight. This causes file nodes to have some empty space depending on how much space nodes inside take"
         },
-        "testextension.treemapOuterPaddingPercent": {
+        "testextension.treemapPaddingPercent": {
           "type": "number",
           "default": 0.04,
           "minimum": 0,
           "maximum": 1,
-          "description": "Percentage of the smallest side used as outermost padding for treemap layout (0-1)."
+          "description": "Percentage of the average side used as padding for treemap layout (0-1)."
+        },
+        "testextension.dynamicTreemapPadding": {
+          "type": "boolean",
+          "default": true,
+          "description": "When enabled, the layout validator will progressively reduce paddingOuter for container nodes that contain collapsed or extreme-aspect-ratio children, halving the padding on each retry until the minimum is reached."
+        },
+        "testextension.capSiblingsWeightRatio": {
+          "type": "number",
+          "default": 50,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Maximum allowed weight ratio between siblings in the treemap. Values ≤1 disable capping. Larger values allow more variation. Applied bottom-up at every parent level before normalization."
         }
       }
     }

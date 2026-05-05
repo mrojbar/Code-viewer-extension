@@ -104,6 +104,9 @@ manager.bootstrap();
 const centerBtn = document.getElementById("btn-center");
 const settingsBtn = document.getElementById("btn-settings");
 const settingsPopup = document.getElementById("settings-popup");
+const settingsPopupContent = document.querySelector(
+  "#settings-popup .settings-popup-scroll",
+) as HTMLElement | null;
 const warningBtn = document.getElementById(
   "btn-warning",
 ) as HTMLButtonElement | null;
@@ -223,18 +226,19 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
     if (
       settingsPopup &&
       settingsPopup.classList.contains("visible") &&
+      settingsPopupContent &&
       typeof msg.html === "string"
     ) {
-      settingsPopup.innerHTML = msg.html;
-      initSettingsControls(settingsPopup);
+      settingsPopupContent.innerHTML = msg.html;
+      initSettingsControls(settingsPopupContent);
     }
     return;
   }
   if (msg?.type === "showSettingsPopup") {
-    if (settingsPopup && typeof msg.html === "string") {
-      settingsPopup.innerHTML = msg.html;
+    if (settingsPopup && settingsPopupContent && typeof msg.html === "string") {
+      settingsPopupContent.innerHTML = msg.html;
       settingsPopup.classList.add("visible");
-      initSettingsControls(settingsPopup);
+      initSettingsControls(settingsPopupContent);
     }
     return;
   }

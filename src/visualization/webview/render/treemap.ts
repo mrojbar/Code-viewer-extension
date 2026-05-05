@@ -276,6 +276,7 @@ export class TreemapRenderManager {
       this.settings.setFileLinesAsWeight,
       this.settings.normalizeTreemapWeight,
       this.settings.normalizedTreemapMaxWeight,
+      this.settings.capSiblingsWeightRatio,
     );
     if (!root) {
       this.updateViewportSize();

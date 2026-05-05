@@ -14,12 +14,56 @@ export const BOX_TYPES = {
   FUNC: "function",
 } as const;
 
+/** Caps large sibling weights so that no child exceeds minSibling * capRatio. */
+function capChildrenWeights(children: LayoutNode[], capRatio: number): void {
+  if (capRatio <= 1 || children.length < 2) {
+    return;
+  }
+
+  const positive = children.filter((c) => c.weight > 0);
+  if (positive.length < 2) {
+    return;
+  }
+
+  const minW = Math.min(...positive.map((c) => c.weight));
+  const maxAllowed = minW * capRatio;
+
+  for (const child of children) {
+    if (child.weight > maxAllowed) {
+      child.weight = maxAllowed;
+    }
+  }
+}
+
+/** Bottom-up weight aggregation with optional per-parent sibling capping. */
+function aggregateAndCapWeights(
+  node: LayoutNode,
+  capRatio: number,
+): number {
+  if (!node.children || node.children.length === 0) {
+    return node.weight;
+  }
+
+  for (const child of node.children) {
+    aggregateAndCapWeights(child, capRatio);
+  }
+
+  if (capRatio > 1) {
+    capChildrenWeights(node.children, capRatio);
+  }
+
+  const sum = node.children.reduce((s, c) => s + c.weight, 0);
+  node.weight = Math.max(node.weight, sum);
+  return node.weight;
+}
+
 /** Flattens PixiElements into a LayoutNode hierarchy with weights and parent links. */
 export function buildLayoutTree(
   elements: PixiElement[],
   setFileLinesAsWeight: boolean,
   normalizeTreemapWeight: boolean,
   normalizedTreemapMaxWeight: number | undefined,
+  capSiblingsWeightRatio: number | undefined,
 ): LayoutNode | undefined {
   const validElements = elements.filter((element) =>
     [BOX_TYPES.DIR, BOX_TYPES.FILE, BOX_TYPES.FUNC].includes(element.type),
@@ -75,19 +119,10 @@ export function buildLayoutTree(
           children: roots,
         };
 
-  function aggregateWeights(node: LayoutNode): number {
-    if (!node.children || node.children.length === 0) {
-      return node.weight;
-    }
-    let sum = 0;
-    for (const c of node.children) {
-      sum += aggregateWeights(c);
-    }
-    node.weight = Math.max(node.weight, sum);
-    return node.weight;
-  }
-
-  aggregateWeights(rootNode);
+  aggregateAndCapWeights(
+    rootNode,
+    capSiblingsWeightRatio ?? 0,
+  );
 
   if (normalizeTreemapWeight) {
     const configuredMax =
