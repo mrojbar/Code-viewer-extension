@@ -121,7 +121,8 @@ vscode-checkbox {
   width: 100%;
 }
 
-vscode-text-field {
+vscode-text-field,
+vscode-dropdown {
   width: 100%;
   margin-top: 6px;
 }

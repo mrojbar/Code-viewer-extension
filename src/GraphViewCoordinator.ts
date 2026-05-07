@@ -18,6 +18,7 @@ export class GraphViewCoordinator {
   private readonly visualizer: PixiVisualizer;
   private readonly additionalLocalResourceRoots: readonly vscode.Uri[];
   private _locationDisposable?: vscode.Disposable;
+  private _graphViewLaunched = false;
 
   constructor(
     extensionUri: vscode.Uri,
@@ -52,8 +53,12 @@ export class GraphViewCoordinator {
     this._locationDisposable = ExtensionSettings.getInstance().onDidChange(
       (changedKeys) => {
         if (changedKeys.has("graphViewLocation")) {
+          const wasOpen = this._graphViewLaunched;
           this.updateLocationContext();
           this.disposeActive();
+          if (wasOpen) {
+            this.launch();
+          }
         }
       },
     );
@@ -133,6 +138,7 @@ export class GraphViewCoordinator {
     this.disposeActive();
 
     if (location === "sidebar") {
+      this._graphViewLaunched = true;
       void vscode.commands.executeCommand(
         "setContext",
         "testextension.graphViewLaunched",
@@ -151,6 +157,7 @@ export class GraphViewCoordinator {
         if (this.activePanel === panel.panel) {
           this.activePanel = undefined;
           this.activeController = undefined;
+          this._graphViewLaunched = false;
           void vscode.commands.executeCommand(
             "setContext",
             "testextension.graphViewLaunched",
@@ -158,6 +165,7 @@ export class GraphViewCoordinator {
           );
         }
       });
+      this._graphViewLaunched = true;
       void vscode.commands.executeCommand(
         "setContext",
         "testextension.graphViewLaunched",
@@ -186,6 +194,7 @@ export class GraphViewCoordinator {
 
   /** Disposes whichever view is currently active and resets state. */
   public disposeActive(): void {
+    this._graphViewLaunched = false;
     this.activePanel?.dispose();
     this.activeController?.dispose();
     this.activePanel = undefined;

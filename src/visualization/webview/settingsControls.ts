@@ -100,6 +100,20 @@ function handleTextFieldChange(target: HTMLElement): void {
   updateModifiedIndicator(key, value);
 }
 
+function handleDropdownChange(target: HTMLElement): void {
+  const row = target.closest<HTMLElement>(".setting-row");
+  if (!row) {
+    return;
+  }
+  const key = row.getAttribute("data-key");
+  if (!key) {
+    return;
+  }
+  const value = (target as any).value ?? "";
+  vscodeApi?.postMessage({ command: "updateSetting", key, value });
+  updateModifiedIndicator(key, value);
+}
+
 function handleResetClick(): void {
   vscodeApi?.postMessage({ command: "resetSettings" });
 }
@@ -139,6 +153,10 @@ export function initSettingsControls(container?: HTMLElement): void {
     }
     if (target.closest("vscode-text-field")) {
       handleTextFieldChange(target);
+      return;
+    }
+    if (target.closest("vscode-dropdown")) {
+      handleDropdownChange(target);
       return;
     }
   });

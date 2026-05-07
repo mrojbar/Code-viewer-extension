@@ -63,13 +63,29 @@ export function buildSettingsControlsHtml(
         </div>
       `;
     } else if (schema.valueType === "string") {
-      settingsHtml += `
-        <div class="setting-row${isConfigured ? " is-configured" : ""}" data-key="${key}" data-default="${schema.defaultValue}"${descAttr}>
-          <div class="setting-label" title="${schema.configurationPath}">${label}</div>
-          ${descHtml}
-          <vscode-text-field id="${key}" value="${currentVal}"></vscode-text-field>
-        </div>
-      `;
+      if (schema.enumValues && schema.enumValues.length > 0) {
+        const optionsHtml = schema.enumValues
+          .map(
+            (opt) =>
+              `<vscode-option value="${opt}" ${opt === currentVal ? "selected" : ""}>${opt}</vscode-option>`,
+          )
+          .join("");
+        settingsHtml += `
+          <div class="setting-row${isConfigured ? " is-configured" : ""}" data-key="${key}" data-default="${schema.defaultValue}"${descAttr}>
+            <div class="setting-label" title="${schema.configurationPath}">${label}</div>
+            ${descHtml}
+            <vscode-dropdown id="${key}">${optionsHtml}</vscode-dropdown>
+          </div>
+        `;
+      } else {
+        settingsHtml += `
+          <div class="setting-row${isConfigured ? " is-configured" : ""}" data-key="${key}" data-default="${schema.defaultValue}"${descAttr}>
+            <div class="setting-label" title="${schema.configurationPath}">${label}</div>
+            ${descHtml}
+            <vscode-text-field id="${key}" value="${currentVal}"></vscode-text-field>
+          </div>
+        `;
+      }
     }
   }
 

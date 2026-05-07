@@ -19,8 +19,7 @@
     "Other"
   ],
   "activationEvents": [
-    "onStartupFinished",
-    "onCommand:testextension.launchGraphView"
+    "onStartupFinished"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -36,6 +35,7 @@
     "views": {
       "testextension-sidebar": [
         {
+          "icon": "",
           "type": "webview",
           "id": "testextension-main-view",
           "name": "Main"
@@ -121,6 +121,10 @@
         "testextension.graphViewLocation": {
           "type": "string",
           "default": "tab",
+          "enum": [
+            "tab",
+            "sidebar"
+          ],
           "description": "Where to open the graph view. Use 'tab' for a regular editor tab or 'sidebar' for the Activity Bar sidebar."
         }
       }

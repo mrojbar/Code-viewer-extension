@@ -43,7 +43,7 @@ async function main() {
     pkg.contributes.configuration.properties,
   )) {
     assertObj(desc, `Setting descriptor for '${confPath}' must be an object.`);
-    const { type, default: def, minimum, maximum } = desc;
+    const { type, default: def, minimum, maximum, enum: enumValues } = desc;
     if (typeof type !== "string" || !SUPPORTED.has(type)) {
       continue;
     }
@@ -84,6 +84,18 @@ async function main() {
         `Setting '${confPath}' default must be a string when type is string.`,
       );
     }
+    if (enumValues !== undefined) {
+      if (!Array.isArray(enumValues) || !enumValues.every((v) => typeof v === "string")) {
+        throw new Error(
+          `Setting '${confPath}' enum must be an array of strings when provided.`,
+        );
+      }
+      if (!enumValues.includes(def)) {
+        throw new Error(
+          `Setting '${confPath}' default value must be one of the enum values.`,
+        );
+      }
+    }
 
     const description = desc.description ?? null;
 
@@ -95,6 +107,7 @@ async function main() {
       minimum ?? null,
       maximum ?? null,
       description,
+      enumValues ?? null,
     ]);
   }
 
@@ -111,12 +124,13 @@ async function main() {
     "  minimum: number | null;",
     "  maximum: number | null;",
     "  description: string | null;",
+    "  enumValues: string[] | null;",
     "};",
     "",
     "export const GENERATED_SETTINGS_SCHEMA = {",
     ...entries.map(
-      ([k, conf, t, d, min, max, desc]) =>
-        `  ${JSON.stringify(k)}: { configurationPath: ${JSON.stringify(conf)}, valueType: ${JSON.stringify(t)}, defaultValue: ${JSON.stringify(d)}, minimum: ${JSON.stringify(min)}, maximum: ${JSON.stringify(max)}, description: ${JSON.stringify(desc)} },`,
+      ([k, conf, t, d, min, max, desc, enums]) =>
+        `  ${JSON.stringify(k)}: { configurationPath: ${JSON.stringify(conf)}, valueType: ${JSON.stringify(t)}, defaultValue: ${JSON.stringify(d)}, minimum: ${JSON.stringify(min)}, maximum: ${JSON.stringify(max)}, description: ${JSON.stringify(desc)}, enumValues: ${JSON.stringify(enums)} },`,
     ),
     "} as const satisfies Record<string, GeneratedSetting>;",
     "",
