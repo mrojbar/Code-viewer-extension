@@ -10,12 +10,12 @@ import type {
   ExtensionConfig,
   UpdateGraphMessage,
   UpdateSettingsMessage,
+  LayoutDiagnostics,
 } from "../../interfaces/messages.js";
 import type {
   Box,
   BoxRenderProps,
   LayoutComplexity,
-  LayoutDiagnostics,
   PixiElement,
   RenderedBox,
   VirtualLayoutSettings,
@@ -110,10 +110,9 @@ export class TreemapRenderManager {
   /** Diagnostics from the last layout validation run. */
   private lastDiagnostics?: LayoutDiagnostics;
 
-  /** Called after every completed render pass with latest validation diagnostics. */
-  public onRenderComplete?: (
-    diagnostics: LayoutDiagnostics | undefined,
-  ) => void;
+  private postDiagnostics(diagnostics: LayoutDiagnostics | undefined): void {
+    this.api?.postMessage({ type: "updateDiagnostics", diagnostics });
+  }
 
   constructor(private readonly api: VsCodeApi | undefined) {}
 
@@ -254,7 +253,7 @@ export class TreemapRenderManager {
     fitToContent: boolean = true,
   ): Promise<void> {
     if (elements.length === 0) {
-      this.onRenderComplete?.(undefined);
+      this.postDiagnostics(undefined);
       return;
     }
 
@@ -263,7 +262,7 @@ export class TreemapRenderManager {
 
     const currentRenderVersion = ++this.renderVersion;
     if (!this.scene) {
-      this.onRenderComplete?.(undefined);
+      this.postDiagnostics(undefined);
       return;
     }
 
@@ -280,7 +279,7 @@ export class TreemapRenderManager {
     );
     if (!root) {
       this.updateViewportSize();
-      this.onRenderComplete?.(undefined);
+      this.postDiagnostics(undefined);
       return;
     }
 
@@ -337,7 +336,7 @@ export class TreemapRenderManager {
     }
 
     if (!this.viewport) {
-      this.onRenderComplete?.(this.lastDiagnostics);
+      this.postDiagnostics(this.lastDiagnostics);
       return;
     }
 
@@ -360,7 +359,7 @@ export class TreemapRenderManager {
       this.applyViewportScaleCompensation();
     }
 
-    this.onRenderComplete?.(this.lastDiagnostics);
+    this.postDiagnostics(this.lastDiagnostics);
   }
 
   /** Reads current renderer dimensions for world and fit calculations. */

@@ -1,7 +1,8 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import { RuntimeManager } from "./RuntimeManager";
-import { SidebarProvider } from "./SidebarProvider";
+import { MainViewProvider } from "./MainViewProvider";
+import { GraphViewCoordinator } from "./GraphViewCoordinator";
 import { PixiVisualizer } from "./visualization/PixiVisualizer";
 import { CallGraphData } from "./visualization/interfaces/callGraph";
 import { getEditorFontFamily } from "./utils/font";
@@ -54,33 +55,38 @@ export async function activate(context: vscode.ExtensionContext) {
     );
   });
 
-  /**
-   * Test: render graph
-   */
   const pixiVis = new PixiVisualizer();
   const editorFontFamily = getEditorFontFamily();
   const extensionSettings = ExtensionSettings.getInstance();
   extensionSettings.initialize(context);
 
-  const sidebarProvider = SidebarProvider.create(
+  const coordinator = new GraphViewCoordinator(
     context.extensionUri,
     pixiVis,
     [context.globalStorageUri],
   );
+  coordinator.initialize(context);
 
-  // Initial settings config and dyanmic bind to push settings updates on change
-  sidebarProvider.setRenderingConfig({
+  coordinator.setRenderingConfig({
     editorFontFamily,
     ...extensionSettings.snapshot(),
   } as ExtensionConfig);
 
   extensionSettings.bindAll((values) => {
-    sidebarProvider.setRenderingConfig({
+    coordinator.setRenderingConfig({
       editorFontFamily,
       ...values,
     } as ExtensionConfig);
-    sidebarProvider.refresh();
+    coordinator.refresh();
   });
+
+  const mainProvider = new MainViewProvider(context.extensionUri, coordinator);
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(
+      "testextension-main-view",
+      mainProvider,
+    ),
+  );
 
   const settingsProvider = new SettingsWebviewProvider(context.extensionUri);
   context.subscriptions.push(
@@ -90,35 +96,28 @@ export async function activate(context: vscode.ExtensionContext) {
     ),
   );
 
+  const launchGraphCommand = vscode.commands.registerCommand(
+    "testextension.launchGraphView",
+    () => {
+      coordinator.launch();
+    },
+  );
+  context.subscriptions.push(launchGraphCommand);
+
   try {
-    // TODO: replace with dynamic runtime data once implemented
     const structFile = path.join(
       context.extensionUri.fsPath,
       "structure_analyzer",
       "main",
       "call_graph.json",
     );
-
     const structObj = require(structFile);
-    sidebarProvider.setGraphData(structObj as CallGraphData);
+    coordinator.setGraphData(structObj as CallGraphData);
   } catch (error) {
     vscode.window.showErrorMessage(
       `Failed to load call graph data: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-
-  context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(
-      "testextension-sidebar-view",
-      sidebarProvider,
-    ),
-  );
-
-  context.subscriptions.push({
-    dispose: () => {
-      sidebarProvider.dispose();
-    },
-  });
 
   context.subscriptions.push(
     startRuntimeCommand,
@@ -128,5 +127,4 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 }
 
-// This method is called when your extension is deactivated
 export function deactivate() {}

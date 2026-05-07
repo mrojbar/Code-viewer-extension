@@ -19,7 +19,8 @@
     "Other"
   ],
   "activationEvents": [
-    "onStartupFinished"
+    "onStartupFinished",
+    "onCommand:testextension.launchGraphView"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -35,6 +36,11 @@
     "views": {
       "testextension-sidebar": [
         {
+          "type": "webview",
+          "id": "testextension-main-view",
+          "name": "Main"
+        },
+        {
           "icon": "",
           "type": "webview",
           "id": "testextension-settings-view",
@@ -42,9 +48,10 @@
         },
         {
           "type": "webview",
-          "id": "testextension-sidebar-view",
+          "id": "testextension-graph-view",
           "name": "Test Extension View",
-          "icon": "src/media/icon.svg"
+          "icon": "src/media/icon.svg",
+          "when": "testextension.showGraphInSidebar && testextension.graphViewLaunched"
         }
       ]
     },
@@ -60,6 +67,11 @@
       {
         "command": "testextension.pythonRuntimeStatus",
         "title": "Python Runtime Status"
+      },
+      {
+        "command": "testextension.launchGraphView",
+        "title": "Launch Graph View",
+        "icon": "$(play)"
       }
     ],
     "configuration": {
@@ -67,12 +79,12 @@
       "properties": {
         "testextension.normalizeTreemapWeight": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Normalize treemap weight"
         },
         "testextension.normalizedTreemapMaxWeight": {
           "type": "number",
-          "default": 1,
+          "default": 5,
           "minimum": 0,
           "maximum": 10,
           "description": "Maximum node weight for the normalized treemap. Can be used to make nodes with small weight more visible. Only has an effect if 'Normalize treemap weight' is enabled."
@@ -89,9 +101,9 @@
         },
         "testextension.treemapPaddingPercent": {
           "type": "number",
-          "default": 0.04,
+          "default": 0.02,
           "minimum": 0,
-          "maximum": 1,
+          "maximum": 0.5,
           "description": "Percentage of the average side used as padding for treemap layout (0-1)."
         },
         "testextension.dynamicTreemapPadding": {
@@ -105,6 +117,11 @@
           "minimum": 0,
           "maximum": 100,
           "description": "Maximum allowed weight ratio between siblings in the treemap. Values ≤1 disable capping. Larger values allow more variation. Applied bottom-up at every parent level before normalization."
+        },
+        "testextension.graphViewLocation": {
+          "type": "string",
+          "default": "tab",
+          "description": "Where to open the graph view. Use 'tab' for a regular editor tab or 'sidebar' for the Activity Bar sidebar."
         }
       }
     }

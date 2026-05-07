@@ -6,8 +6,8 @@
  */
 import { TreemapLayout } from "../../layout/treemapLayout.js";
 import { LayoutNode, LayoutRect } from "../../interfaces/layout.js";
+import type { LayoutDiagnostics } from "../../interfaces/messages.js";
 import type {
-  LayoutDiagnostics,
   ValidatedLayoutResult,
   VirtualLayoutSettings,
 } from "../pixiView.js";
