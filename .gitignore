@@ -6,7 +6,7 @@ node_modules
 structure_analyzer/env
 structure_analyzer/__pycache__
 structure_analyzer/*.log
-structure_analyzer
+structure_analyzer/main/structure_analyzer.py
 runtime
 src/generated/
 

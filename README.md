@@ -1,111 +1,57 @@
-# testextension README
+# TestExtension
 
-## Bundled Python Runtime Draft
+A VS Code extension with a TypeScript frontend/host and a Python runtime backend to visualize in a reactive tree diagram the internal structure and call graph of your repository.
 
-This extension can run a bundled platform binary as a local worker process (not an HTTP service).
+The Python backend parses code with tree-sitter to generate a call graph. The TypeScript host renders this as an interactive treemap in a VS Code webview using PixiJS and d3-hierarchy.
 
-Expected runtime layout:
+## Prerequisites
 
-```text
-runtime/
-	win32-x64/app.exe
-	win32-arm64/app.exe
-	darwin-x64/app
-	darwin-arm64/app
-	linux-x64/app
-	linux-arm64/app
+- [Node.js](https://nodejs.org/) (v22+ recommended)
+- [pnpm](https://pnpm.io/) (v10+)
+- [VS Code](https://code.visualstudio.com/) (v1.110+)
+- Python 3.11+
+- `make` (for Python environment setup)
+
+## Build
+
+```bash
+pnpm install
+pnpm run compile
 ```
 
-Runtime controls are exposed in the command palette:
+## Python Environment Setup
 
-- Start Python Runtime
-- Stop Python Runtime
-- Python Runtime Status
+The Python code lives in `structure_analyzer/`. To configure the environment:
 
-Logs are written to the output channel named "TestExtension Python Runtime".
-
-The runtime protocol uses one JSON object per line over stdio.
-
-Extension -> runtime on startup:
-
-```json
-{"type":"initialize","protocolVersion":1}
+```bash
+cd structure_analyzer
+make setup
 ```
 
-Runtime -> extension when healthy:
+This creates a virtual environment at `structure_analyzer/env/` and installs the dependencies listed in `req.txt`.
+The graph building script is still work in progress, a static data file ``call_graph.json`` is provided for testing in the meantime.
 
-```json
-{"type":"ready"}
-```
+## Run
 
-The extension waits up to 10 seconds for the ready message and treats startup as failed if it is not received.
+Press `F5` in VS Code to launch the Extension Development Host.
 
-This is the README for your extension "testextension". After writing up a brief description, we recommend including the following sections.
+## Project Structure
 
-## Features
+- **TypeScript extension host:** `src/` → compiles to `out/`
+- **Webview runtime:** `src/visualization/webview/` → compiles to `runtime/` **WIP!!**
+- **Python runtime:** expects a bundled binary at `binaries/<platform>/app` (or `app.exe` on Windows) **WIP!!"**
+- **Static data:** loads `structure_analyzer/main/call_graph.json` at activation
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+## Main Dependencies
 
-For example if there is an image subfolder under your extension project workspace:
+### TypeScript
+- [PixiJS](https://pixijs.com/) — 2D WebGL rendering
+- [d3-hierarchy](https://github.com/d3/d3-hierarchy) — treemap layout
+- [elkjs](https://github.com/kieler/elkjs) — graph layout
+- [pixi-viewport](https://github.com/davidfig/pixi-viewport) — pan/zoom for PixiJS
+- [@vscode/webview-ui-toolkit](https://github.com/microsoft/vscode-webview-ui-toolkit) — VS Code webview components
 
-\!\[feature X\]\(images/feature-x.png\)
-
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
-
-## Requirements
-
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
-
-## Extension Settings
-
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
-
-For example:
-
-This extension contributes the following settings:
-
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
-
-## Known Issues
-
-Calling out known issues can help limit users opening duplicate issues against your extension.
-
-## Release Notes
-
-Users appreciate release notes as you update your extension.
-
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
-
----
-
-## Following extension guidelines
-
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
-
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+### Python
+- [pydantic](https://docs.pydantic.dev/) — data validation
+- [tree-sitter](https://tree-sitter.github.io/tree-sitter/) — parsing
+- [tree-sitter-languages](https://github.com/grantjenks/py-tree-sitter-languages) — language bindings
