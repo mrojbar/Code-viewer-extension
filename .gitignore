@@ -9,8 +9,11 @@ structure_analyzer/*.log
 structure_analyzer/main/structure_analyzer.py
 runtime
 src/generated/
-
-# Beads / Dolt files (added by bd init)
-.dolt/
 *.db
 .beads
+.mcp.json
+opencode.jsonc
+.codegraph
+.opencode
+.vs
+docs
