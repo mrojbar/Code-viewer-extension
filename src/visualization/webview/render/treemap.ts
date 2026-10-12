@@ -110,11 +110,16 @@ export class TreemapRenderManager {
   /** Diagnostics from the last layout validation run. */
   private lastDiagnostics?: LayoutDiagnostics;
 
-  private postDiagnostics(diagnostics: LayoutDiagnostics | undefined): void {
-    this.api?.postMessage({ type: "updateDiagnostics", diagnostics });
+  private emitDiagnostics(diagnostics: LayoutDiagnostics | undefined): void {
+    this.onDiagnostics?.(diagnostics);
   }
 
-  constructor(private readonly api: VsCodeApi | undefined) {}
+  constructor(
+    private readonly api: VsCodeApi | undefined,
+    private readonly onDiagnostics?: (
+      diagnostics: LayoutDiagnostics | undefined,
+    ) => void,
+  ) {}
 
   /** Applies host update payload and schedules a full render pass. */
   public handleGraphUpdate(message: UpdateGraphMessage): void {
@@ -253,7 +258,7 @@ export class TreemapRenderManager {
     fitToContent: boolean = true,
   ): Promise<void> {
     if (elements.length === 0) {
-      this.postDiagnostics(undefined);
+      this.emitDiagnostics(undefined);
       return;
     }
 
@@ -262,7 +267,7 @@ export class TreemapRenderManager {
 
     const currentRenderVersion = ++this.renderVersion;
     if (!this.scene) {
-      this.postDiagnostics(undefined);
+      this.emitDiagnostics(undefined);
       return;
     }
 
@@ -279,7 +284,7 @@ export class TreemapRenderManager {
     );
     if (!root) {
       this.updateViewportSize();
-      this.postDiagnostics(undefined);
+      this.emitDiagnostics(undefined);
       return;
     }
 
@@ -336,7 +341,7 @@ export class TreemapRenderManager {
     }
 
     if (!this.viewport) {
-      this.postDiagnostics(this.lastDiagnostics);
+      this.emitDiagnostics(this.lastDiagnostics);
       return;
     }
 
@@ -359,7 +364,7 @@ export class TreemapRenderManager {
       this.applyViewportScaleCompensation();
     }
 
-    this.postDiagnostics(this.lastDiagnostics);
+    this.emitDiagnostics(this.lastDiagnostics);
   }
 
   /** Reads current renderer dimensions for world and fit calculations. */

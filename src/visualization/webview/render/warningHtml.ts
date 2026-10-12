@@ -1,4 +1,4 @@
-import { LayoutDiagnostics } from "./visualization/interfaces/messages";
+import type { LayoutDiagnostics } from "../../interfaces/messages.js";
 
 function escapeHtml(text: string): string {
   return text

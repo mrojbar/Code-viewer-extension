@@ -38,19 +38,34 @@ export interface LayoutDiagnostics {
   extremeSamples: Array<{ path: string; w: number; h: number }>;
 }
 
-/** Payload posted from webview to host after each render pass. */
-export interface UpdateDiagnosticsMessage {
-  type: "updateDiagnostics";
-  diagnostics?: LayoutDiagnostics;
+/** One settings entry rendered by the webview settings popup. */
+export interface SettingsViewDatum {
+  key: string;
+  label: string;
+  description: string | null;
+  valueType: "boolean" | "number" | "string";
+  defaultValue: boolean | number | string;
+  value: boolean | number | string;
+  minimum: number | null;
+  maximum: number | null;
+  enumValues: string[] | null;
+  configurationPath: string;
 }
 
-/** Payload posted from host to webview to show the warning popup. */
-export interface ShowWarningPopupMessage {
-  type: "showWarningPopup";
-  html: string;
+/** Payload posted from host to webview to render the settings popup rows. */
+export interface SettingsViewDataMessage {
+  type: "settingsViewData";
+  settings: SettingsViewDatum[];
 }
 
-/** Payload posted from host to webview to hide the warning button and popup. */
-export interface HideWarningPopupMessage {
-  type: "hideWarningPopup";
+/** Payload posted from webview to host to write one setting. */
+export interface UpdateSettingMessage {
+  command: "updateSetting";
+  key: string;
+  value: boolean | number | string;
+}
+
+/** Payload posted from webview to host to restore all defaults. */
+export interface ResetSettingsMessage {
+  command: "resetSettings";
 }

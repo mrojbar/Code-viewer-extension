@@ -7,10 +7,12 @@ import {
   UpdateMessage,
   UpdateGraphMessage,
   UpdateSettingsMessage,
+  SettingsViewDataMessage,
   LayoutDiagnostics,
 } from "../interfaces/messages.js";
 import { vscodeApi } from "./vscodeApi.js";
-import { initSettingsControls } from "./settingsControls.js";
+import { initSettingsPopup, updateSettingsData } from "./settingsPopup.js";
+import { initWarningPopup, renderWarning } from "./warningPopup.js";
 /** Flat element payload consumed by the webview renderer. */
 export interface PixiElement {
   id: string;
@@ -86,74 +88,20 @@ declare global {
 
 const RESIZE_DEBOUNCE_MS = 250;
 
-const manager = new TreemapRenderManager(vscodeApi);
+const manager = new TreemapRenderManager(vscodeApi, renderWarning);
 /** Debounce handle for resize-triggered layout rerenders. */
 let resizeDebounceTimer: number | undefined;
 
 manager.bootstrap();
 
+initSettingsPopup();
+initWarningPopup();
+
 const centerBtn = document.getElementById("btn-center");
-const settingsBtn = document.getElementById("btn-settings");
-const settingsPopup = document.getElementById("settings-popup");
-const settingsPopupContent = document.querySelector(
-  "#settings-popup .settings-popup-scroll",
-) as HTMLElement | null;
-const warningBtn = document.getElementById(
-  "btn-warning",
-) as HTMLButtonElement | null;
-const warningPopup = document.getElementById("warning-popup");
 
 centerBtn?.addEventListener("click", () => {
   manager.centerView();
 });
-
-// click handler for settings button in the toolbar
-settingsBtn?.addEventListener("click", () => {
-  if (settingsPopup?.classList.contains("visible")) {
-    settingsPopup.classList.remove("visible");
-    return;
-  }
-  vscodeApi?.postMessage({ type: "getSettingsHtml" });
-});
-
-warningBtn?.addEventListener("click", () => {
-  warningPopup?.classList.toggle("visible");
-});
-
-// Global click handler to close popups when clicking outside of them
-document.addEventListener("click", (e) => {
-  if (
-    settingsPopup?.classList.contains("visible") &&
-    !settingsPopup.contains(e.target as Node) &&
-    !settingsBtn?.contains(e.target as Node)
-  ) {
-    settingsPopup.classList.remove("visible");
-  }
-  if (
-    warningPopup?.classList.contains("visible") &&
-    !warningPopup.contains(e.target as Node) &&
-    !warningBtn?.contains(e.target as Node)
-  ) {
-    warningPopup.classList.remove("visible");
-  }
-});
-
-function handleShowWarningPopup(html: string): void {
-  if (!warningBtn || !warningPopup) {
-    return;
-  }
-  warningBtn.style.display = "flex";
-  warningPopup.innerHTML = html;
-  warningPopup.classList.add("visible");
-}
-
-function handleHideWarningPopup(): void {
-  if (!warningBtn || !warningPopup) {
-    return;
-  }
-  warningBtn.style.display = "none";
-  warningPopup.classList.remove("visible");
-}
 
 /** Guards extension -> webview message payload shape. */
 function isUpdateMessageType(
@@ -168,6 +116,18 @@ function isUpdateMessageType(
   return message.type === type;
 }
 
+/** Guards the settings view data payload posted from the host. */
+function isSettingsViewDataMessage(
+  value: unknown,
+): value is SettingsViewDataMessage {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const message = value as Partial<SettingsViewDataMessage>;
+  return message.type === "settingsViewData" && Array.isArray(message.settings);
+}
+
 /** Receives graph updates posted from the extension host. */
 window.addEventListener("message", (event: MessageEvent<unknown>) => {
   if (isUpdateMessageType(event.data, "updateSettings")) {
@@ -178,34 +138,8 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
     manager.handleGraphUpdate(event.data as UpdateGraphMessage);
     return;
   }
-
-  const msg = event.data as any;
-  if (msg?.type === "updateSettingsPopupHtml") {
-    if (
-      settingsPopup &&
-      settingsPopup.classList.contains("visible") &&
-      settingsPopupContent &&
-      typeof msg.html === "string"
-    ) {
-      settingsPopupContent.innerHTML = msg.html;
-      initSettingsControls(settingsPopupContent);
-    }
-    return;
-  }
-  if (msg?.type === "showSettingsPopup") {
-    if (settingsPopup && settingsPopupContent && typeof msg.html === "string") {
-      settingsPopupContent.innerHTML = msg.html;
-      settingsPopup.classList.add("visible");
-      initSettingsControls(settingsPopupContent);
-    }
-    return;
-  }
-  if (msg?.type === "showWarningPopup" && typeof msg.html === "string") {
-    handleShowWarningPopup(msg.html);
-    return;
-  }
-  if (msg?.type === "hideWarningPopup") {
-    handleHideWarningPopup();
+  if (isSettingsViewDataMessage(event.data)) {
+    updateSettingsData(event.data.settings);
     return;
   }
 });

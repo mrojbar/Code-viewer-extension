@@ -1,9 +1,4 @@
-import {
-  hierarchy,
-  treemap,
-  treemapResquarify,
-  HierarchyRectangularNode,
-} from "d3-hierarchy";
+import { hierarchy, treemap, HierarchyRectangularNode } from "d3-hierarchy";
 import {
   LayoutAlgorithm,
   LayoutNode,
@@ -27,26 +22,10 @@ export class TreemapLayout implements LayoutAlgorithm<TreemapLayoutConfig> {
     config.topPaddingPerc = config.topPaddingPerc ?? MIN_PADDIN_PERC;
     const maxDepth = config.maxDepth ?? 0;
 
-    const overrides = config.paddingOuterOverrides;
     const pInner = (node: HierarchyRectangularNode<LayoutNode>) =>
       dynamicPadding(node, config.topPaddingPerc, MIN_PADDIN_PERC, maxDepth);
-    const pOuter = (node: HierarchyRectangularNode<LayoutNode>) => {
-      const base = dynamicPadding(
-        node,
-        config.topPaddingPerc,
-        MIN_PADDIN_PERC,
-        maxDepth,
-      );
-      const factor = overrides?.get(node.data.id);
-      if (factor === undefined) {
-        return base;
-      }
-      const nodeW = node.x1 - node.x0;
-      const nodeH = node.y1 - node.y0;
-      const avgSide = Math.sqrt(nodeW * nodeH);
-      const minPadding = avgSide * MIN_PADDIN_PERC;
-      return Math.max(minPadding, base * factor);
-    };
+    const pOuter = (node: HierarchyRectangularNode<LayoutNode>) =>
+      dynamicPadding(node, config.topPaddingPerc, MIN_PADDIN_PERC, maxDepth);
     const startTime = performance.now();
 
     const rootHierarchy = hierarchy<LayoutNode>(
@@ -59,7 +38,6 @@ export class TreemapLayout implements LayoutAlgorithm<TreemapLayoutConfig> {
     }
 
     let treemapLayout = treemap<LayoutNode>()
-      .tile(treemapResquarify)
       .size([width, height])
       .round(config.round ?? true);
 
@@ -74,13 +52,7 @@ export class TreemapLayout implements LayoutAlgorithm<TreemapLayoutConfig> {
     const paddingsByDepth: Record<number, number> = {};
     for (let d = 0; d <= maxDepth; d++) {
       paddingsByDepth[d] = dynamicPadding(
-        {
-          x0: 0,
-          y0: 0,
-          x1: width,
-          y1: height,
-          depth: d,
-        } as HierarchyRectangularNode<LayoutNode>,
+        { x0: 0, y0: 0, x1: width, y1: height, depth: d } as HierarchyRectangularNode<LayoutNode>,
         config.topPaddingPerc,
         MIN_PADDIN_PERC,
         maxDepth,

@@ -2,14 +2,12 @@ import * as vscode from "vscode";
 import { PixiWebviewController } from "./webview/PixiWebviewController";
 import { GraphViewCoordinator } from "./GraphViewCoordinator";
 import { ExtensionSettings, SettingsKey } from "./settings";
-import { buildSettingsControlsHtml } from "./SettingsHtmlBuilder";
-import { buildWarningHtml } from "./WarningHtmlBuilder";
-import { LayoutDiagnostics } from "./visualization/interfaces/messages";
+import { buildSettingsViewData } from "./SettingsViewDataBuilder";
 import { WebviewHost } from "./webview/contracts";
 
 /**
  * Shared host for a Pixi graph webview, used by both sidebar views
- * and regular editor tabs.  Manages settings-popup wiring and
+ * and regular editor tabs.  Manages settings data wiring and
  * controller lifecycle.
  */
 export class GraphHost {
@@ -29,14 +27,8 @@ export class GraphHost {
         return;
       }
       if (message.type === "webviewReady") {
+        this.postSettingsViewData(webview);
         this.controller.refresh();
-        return;
-      }
-
-      if (message.type === "getSettingsHtml") {
-        const settings = ExtensionSettings.getInstance();
-        const html = buildSettingsControlsHtml(settings, { tooltip: true });
-        webview.postMessage({ type: "showSettingsPopup", html });
         return;
       }
 
@@ -46,8 +38,7 @@ export class GraphHost {
           .then(() => {
             const settings = ExtensionSettings.getInstance();
             settings.forceRefresh();
-            const html = buildSettingsControlsHtml(settings, { tooltip: true });
-            webview.postMessage({ type: "showSettingsPopup", html });
+            this.postSettingsViewData(webview);
           });
         return;
       }
@@ -57,19 +48,6 @@ export class GraphHost {
         void settings.update(message.key as SettingsKey, message.value);
         return;
       }
-
-      if (message.type === "updateDiagnostics") {
-        const diagnostics = message.diagnostics as
-          | LayoutDiagnostics
-          | undefined;
-        const html = buildWarningHtml(diagnostics);
-        if (html) {
-          webview.postMessage({ type: "showWarningPopup", html });
-        } else {
-          webview.postMessage({ type: "hideWarningPopup" });
-        }
-        return;
-      }
     });
 
     this._settingsChangeDisposable =
@@ -77,9 +55,7 @@ export class GraphHost {
         if (this._disposed) {
           return;
         }
-        const settings = ExtensionSettings.getInstance();
-        const html = buildSettingsControlsHtml(settings, { tooltip: true });
-        webview.postMessage({ type: "updateSettingsPopupHtml", html });
+        this.postSettingsViewData(webview);
       });
 
     const host = this.createHostAdapter(webview, extensionUri);
@@ -94,6 +70,14 @@ export class GraphHost {
     this._disposed = true;
     this._settingsChangeDisposable?.dispose();
     coordinator.unregisterController(this.controller);
+  }
+
+  private postSettingsViewData(webview: vscode.Webview): void {
+    const settings = ExtensionSettings.getInstance();
+    webview.postMessage({
+      type: "settingsViewData",
+      settings: buildSettingsViewData(settings),
+    });
   }
 
   private createHostAdapter(
