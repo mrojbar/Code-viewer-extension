@@ -11,6 +11,14 @@ import { ExtensionConfig } from "./visualization/interfaces/messages";
 import { SettingsWebviewProvider } from "./SettingsWebviewProvider";
 
 export async function activate(context: vscode.ExtensionContext) {
+  if (context.extensionMode === vscode.ExtensionMode.Development) {
+    void vscode.commands
+      .executeCommand("devlogs-mcp.start")
+      .then(undefined, (error: unknown) => {
+        console.warn(`DevLogs MCP server not started: ${error}`);
+      });
+  }
+
   const runtimeManager = new RuntimeManager(context);
   context.subscriptions.push(runtimeManager);
 

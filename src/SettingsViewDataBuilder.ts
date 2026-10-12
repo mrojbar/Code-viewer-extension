@@ -4,7 +4,11 @@ import {
 } from "./generated/settingsSchema";
 import { ExtensionSettings, SettingsKey } from "./settings";
 import { SettingsViewDatum } from "./visualization/interfaces/messages";
-import { formatCamelCase } from "./SettingsHtmlBuilder";
+
+function formatCamelCase(text: string): string {
+  const result = text.replace(/([A-Z])/g, " $1");
+  return result.charAt(0).toUpperCase() + result.slice(1);
+}
 
 /**
  * Projects the generated settings schema plus current cached values

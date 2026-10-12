@@ -1,101 +1,13 @@
 import * as fs from "fs";
 import * as vscode from "vscode";
-import { ExtensionSettings, SettingsKey } from "./settings";
-import {
-  GENERATED_SETTINGS_SCHEMA,
-  GeneratedSetting,
-} from "./generated/settingsSchema.js";
 
-export interface SettingsControlsOptions {
-  /** When true, descriptions are rendered as title tooltips on the row instead of inline text. */
-  tooltip?: boolean;
-}
-
-export function buildSettingsControlsHtml(
-  settings: ExtensionSettings,
-  options?: SettingsControlsOptions,
-): string {
-  const useTooltip = options?.tooltip ?? false;
-
-  let settingsHtml = `
-    <div class="settings-reset-row">
-      <button class="settings-reset-btn">
-        <span class="codicon codicon-refresh"></span>
-        <span>Reset to default settings</span>
-      </button>
-    </div>
-  `;
-
-  for (const [key, rawSchema] of Object.entries(GENERATED_SETTINGS_SCHEMA)) {
-    const schema = rawSchema as GeneratedSetting;
-    const currentVal = settings.get(key as SettingsKey);
-    const label = formatCamelCase(key);
-    const desc = schema.description;
-    const isConfigured = currentVal !== schema.defaultValue;
-    const descAttr = desc && useTooltip ? ` title="${desc}"` : "";
-    const descHtml = desc && !useTooltip ? `<div class="setting-description">${desc}</div>` : "";
-
-    if (schema.valueType === "boolean") {
-      settingsHtml += `
-        <div class="setting-row${isConfigured ? " is-configured" : ""}" data-key="${key}" data-default="${schema.defaultValue}"${descAttr}>
-          <vscode-checkbox id="${key}" ${currentVal ? "checked" : ""}>${label}</vscode-checkbox>
-          ${descHtml}
-        </div>
-      `;
-    } else if (schema.valueType === "number") {
-      const min = schema.minimum !== null ? schema.minimum : 0;
-      const max = schema.maximum !== null ? schema.maximum : 100;
-      const step =
-        Number.isInteger(min) &&
-        Number.isInteger(max) &&
-        Number(schema.defaultValue) % 1 === 0
-          ? "1"
-          : "0.01";
-
-      settingsHtml += `
-        <div class="setting-row${isConfigured ? " is-configured" : ""}" data-key="${key}" data-default="${schema.defaultValue}"${descAttr}>
-          <div class="setting-label" title="${schema.configurationPath}">${label}</div>
-          ${descHtml}
-          <div class="setting-control-row">
-            <input type="range" class="native-slider" id="${key}-slider" min="${min}" max="${max}" step="${step}" value="${currentVal}">
-            <input type="number" class="native-number" id="${key}-input" value="${currentVal}" step="0.01">
-          </div>
-        </div>
-      `;
-    } else if (schema.valueType === "string") {
-      if (schema.enumValues && schema.enumValues.length > 0) {
-        const optionsHtml = schema.enumValues
-          .map(
-            (opt) =>
-              `<vscode-option value="${opt}" ${opt === currentVal ? "selected" : ""}>${opt}</vscode-option>`,
-          )
-          .join("");
-        settingsHtml += `
-          <div class="setting-row${isConfigured ? " is-configured" : ""}" data-key="${key}" data-default="${schema.defaultValue}"${descAttr}>
-            <div class="setting-label" title="${schema.configurationPath}">${label}</div>
-            ${descHtml}
-            <vscode-dropdown id="${key}">${optionsHtml}</vscode-dropdown>
-          </div>
-        `;
-      } else {
-        settingsHtml += `
-          <div class="setting-row${isConfigured ? " is-configured" : ""}" data-key="${key}" data-default="${schema.defaultValue}"${descAttr}>
-            <div class="setting-label" title="${schema.configurationPath}">${label}</div>
-            ${descHtml}
-            <vscode-text-field id="${key}" value="${currentVal}"></vscode-text-field>
-          </div>
-        `;
-      }
-    }
-  }
-
-  return settingsHtml;
-}
-
+/**
+ * Builds the settings sidebar webview shell (template + resources).
+ * Setting rows are rendered webview-side from settings view data.
+ */
 export function buildSettingsHtml(
   webview: vscode.Webview,
   extensionUri: vscode.Uri,
-  settings: ExtensionSettings,
 ): string {
   const toolkitUri = webview.asWebviewUri(
     vscode.Uri.joinPath(
@@ -119,8 +31,6 @@ export function buildSettingsHtml(
     ),
   );
 
-  const settingsHtml = buildSettingsControlsHtml(settings);
-
   const nonce = getNonce();
 
   const styleUri = webview.asWebviewUri(
@@ -142,13 +52,7 @@ export function buildSettingsHtml(
     .replace("${codiconUri}", codiconUri.toString())
     .replace("${styleUri}", styleUri.toString())
     .replace("${nonce}", nonce)
-    .replace("${scriptUri}", scriptUri.toString())
-    .replace("${settingsHtml}", settingsHtml);
-}
-
-export function formatCamelCase(text: string): string {
-  const result = text.replace(/([A-Z])/g, " $1");
-  return result.charAt(0).toUpperCase() + result.slice(1);
+    .replace("${scriptUri}", scriptUri.toString());
 }
 
 function getNonce(): string {

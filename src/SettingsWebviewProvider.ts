@@ -1,22 +1,13 @@
 import * as vscode from "vscode";
-import { ExtensionSettings, SettingsKey } from "./settings";
+import { SettingsWebviewBridge } from "./SettingsWebviewBridge";
 import { buildSettingsHtml } from "./SettingsHtmlBuilder";
 
 export class SettingsWebviewProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
-  private settings: ExtensionSettings;
-  private disposable?: vscode.Disposable;
+  private readonly _bridge = new SettingsWebviewBridge();
+  private _bridgeDisposable?: vscode.Disposable;
 
-  constructor(private readonly _extensionUri: vscode.Uri) {
-    this.settings = ExtensionSettings.getInstance();
-
-    this.disposable = this.settings.onDidChange(() => {
-      // Re-trigger a full re-render on settings changes
-      if (this._view) {
-        this.updateWebview();
-      }
-    });
-  }
+  constructor(private readonly _extensionUri: vscode.Uri) {}
 
   public resolveWebviewView(webviewView: vscode.WebviewView) {
     this._view = webviewView;
@@ -26,18 +17,11 @@ export class SettingsWebviewProvider implements vscode.WebviewViewProvider {
       localResourceRoots: [this._extensionUri],
     };
 
-    // Handle messages from the webview
-    webviewView.webview.onDidReceiveMessage(async (data) => {
-      if (data.command === "updateSetting") {
-        await ExtensionSettings.getInstance().update(
-          data.key as SettingsKey,
-          data.value,
-        );
-      }
-
-      if (data.command === "resetSettings") {
-        await ExtensionSettings.getInstance().resetAll();
-      }
+    this._bridgeDisposable?.dispose();
+    this._bridgeDisposable = this._bridge.attach(webviewView.webview);
+    webviewView.onDidDispose(() => {
+      this._bridgeDisposable?.dispose();
+      this._bridgeDisposable = undefined;
     });
 
     this.updateWebview();
@@ -51,11 +35,10 @@ export class SettingsWebviewProvider implements vscode.WebviewViewProvider {
     this._view.webview.html = buildSettingsHtml(
       this._view.webview,
       this._extensionUri,
-      this.settings,
     );
   }
 
   dispose() {
-    this.disposable?.dispose();
+    this._bridgeDisposable?.dispose();
   }
 }

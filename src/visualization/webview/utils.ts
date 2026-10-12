@@ -3,6 +3,18 @@ export function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
+/** Guards the settings view data payload posted from the host. */
+export function isSettingsViewDataMessage(
+  value: unknown,
+): value is import("../interfaces/messages.js").SettingsViewDataMessage {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const message = value as { type?: unknown; settings?: unknown };
+  return message.type === "settingsViewData" && Array.isArray(message.settings);
+}
+
 /** Coerces possibly-invalid numeric values into safe positive integers. */
 export function toFiniteInteger(value: number, minimum = 1): number {
   if (!Number.isFinite(value)) {

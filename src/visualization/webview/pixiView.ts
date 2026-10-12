@@ -7,10 +7,11 @@ import {
   UpdateMessage,
   UpdateGraphMessage,
   UpdateSettingsMessage,
-  SettingsViewDataMessage,
   LayoutDiagnostics,
 } from "../interfaces/messages.js";
 import { vscodeApi } from "./vscodeApi.js";
+import { isSettingsViewDataMessage } from "./utils.js";
+import { initDevLogsBridge } from "./devlogs.js";
 import { initSettingsPopup, updateSettingsData } from "./settingsPopup.js";
 import { initWarningPopup, renderWarning } from "./warningPopup.js";
 /** Flat element payload consumed by the webview renderer. */
@@ -88,6 +89,8 @@ declare global {
 
 const RESIZE_DEBOUNCE_MS = 250;
 
+initDevLogsBridge("graph-webview");
+
 const manager = new TreemapRenderManager(vscodeApi, renderWarning);
 /** Debounce handle for resize-triggered layout rerenders. */
 let resizeDebounceTimer: number | undefined;
@@ -114,18 +117,6 @@ function isUpdateMessageType(
 
   const message = value as Partial<UpdateMessage>;
   return message.type === type;
-}
-
-/** Guards the settings view data payload posted from the host. */
-function isSettingsViewDataMessage(
-  value: unknown,
-): value is SettingsViewDataMessage {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const message = value as Partial<SettingsViewDataMessage>;
-  return message.type === "settingsViewData" && Array.isArray(message.settings);
 }
 
 /** Receives graph updates posted from the extension host. */

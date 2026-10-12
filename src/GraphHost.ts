@@ -1,18 +1,18 @@
 import * as vscode from "vscode";
 import { PixiWebviewController } from "./webview/PixiWebviewController";
 import { GraphViewCoordinator } from "./GraphViewCoordinator";
-import { ExtensionSettings, SettingsKey } from "./settings";
-import { buildSettingsViewData } from "./SettingsViewDataBuilder";
+import { SettingsWebviewBridge } from "./SettingsWebviewBridge";
 import { WebviewHost } from "./webview/contracts";
 
 /**
  * Shared host for a Pixi graph webview, used by both sidebar views
- * and regular editor tabs.  Manages settings data wiring and
+ * and regular editor tabs.  Manages settings wiring and
  * controller lifecycle.
  */
 export class GraphHost {
   public readonly controller: PixiWebviewController;
-  private readonly _settingsChangeDisposable?: vscode.Disposable;
+  private readonly _settingsBridge = new SettingsWebviewBridge();
+  private readonly _bridgeDisposable: vscode.Disposable;
   private _disposed = false;
 
   constructor(
@@ -22,41 +22,16 @@ export class GraphHost {
   ) {
     this.controller = coordinator.createController();
 
+    this._bridgeDisposable = this._settingsBridge.attach(webview);
+
     webview.onDidReceiveMessage((message: any) => {
       if (this._disposed) {
         return;
       }
       if (message.type === "webviewReady") {
-        this.postSettingsViewData(webview);
         this.controller.refresh();
-        return;
-      }
-
-      if (message.command === "resetSettings") {
-        void ExtensionSettings.getInstance()
-          .resetAll()
-          .then(() => {
-            const settings = ExtensionSettings.getInstance();
-            settings.forceRefresh();
-            this.postSettingsViewData(webview);
-          });
-        return;
-      }
-
-      if (message.command === "updateSetting") {
-        const settings = ExtensionSettings.getInstance();
-        void settings.update(message.key as SettingsKey, message.value);
-        return;
       }
     });
-
-    this._settingsChangeDisposable =
-      ExtensionSettings.getInstance().onDidChange(() => {
-        if (this._disposed) {
-          return;
-        }
-        this.postSettingsViewData(webview);
-      });
 
     const host = this.createHostAdapter(webview, extensionUri);
     this.controller.attachHost(host);
@@ -68,16 +43,8 @@ export class GraphHost {
       return;
     }
     this._disposed = true;
-    this._settingsChangeDisposable?.dispose();
+    this._bridgeDisposable.dispose();
     coordinator.unregisterController(this.controller);
-  }
-
-  private postSettingsViewData(webview: vscode.Webview): void {
-    const settings = ExtensionSettings.getInstance();
-    webview.postMessage({
-      type: "settingsViewData",
-      settings: buildSettingsViewData(settings),
-    });
   }
 
   private createHostAdapter(
